@@ -134,6 +134,7 @@
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Upload Local PDF</label>
                         <input type="file" id="memoPdfInput" accept=".pdf" class="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition">
+                        <input type="hidden" id="memoPdfData">
                         <div id="pdfUploadStatus" class="text-[10px] text-slate-400 mt-1"></div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
@@ -201,8 +202,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
-        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-storage.js";
+        import { getFirestore, collection, getDocs, setDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCtQbVm91_lsmzz2XcX60bhUCYH0CjRb_E",
@@ -216,14 +216,13 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const storage = getStorage(app);
-        const docRef = doc(db, "appData", "memoConfig");
 
         let memos = [];
         const defaultCats = ["Insurance / PII", "Conditions of Contract", "Technical Specifications", "Procurement Guidelines"];
         let categories = JSON.parse(localStorage.getItem('tender_categories')) || defaultCats;
         let memoToDeleteId = null;
 
+        // Pagination state
         window.currentPage = 1;
         const itemsPerPage = 20;
         let totalPages = 1;
@@ -239,6 +238,7 @@
         const memoCategorySelect = document.getElementById('memoCategory');
         const importInput = document.getElementById('importInput');
         const memoPdfInput = document.getElementById('memoPdfInput');
+        const memoPdfData = document.getElementById('memoPdfData');
         const pdfUploadStatus = document.getElementById('pdfUploadStatus');
         const saveSpinner = document.getElementById('saveSpinner');
         const saveFormBtn = document.getElementById('saveFormBtn');
@@ -253,13 +253,11 @@
 
         async function loadMemos() {
             try {
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    memos = docSnap.data().records || [];
-                } else {
-                    memos = [];
-                    await setDoc(docRef, { records: [] });
-                }
+                const querySnapshot = await getDocs(collection(db, "memos"));
+                memos = [];
+                querySnapshot.forEach((doc) => {
+                    memos.push(doc.data());
+                });
                 renderTable();
             } catch (error) {
                 showToast("Failed to load data from database", "error");
@@ -305,9 +303,9 @@
                     <td class="py-3 px-4 text-right whitespace-nowrap">
                         <div class="flex justify-end gap-1">
                             ${m.url ? `<a href="${m.url}" target="_blank" class="p-1.5 text-slate-400 hover:text-indigo-600 transition" title="Open Link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : ''}
-                            ${(m.pdfUrl || m.pdfData) ? `<button onclick="openPdf('${m.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="Open PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
-                            <button onclick="editMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-blue-600 transition" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                            <button onclick="deleteMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-red-600 transition" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                            ${m.pdfData ? `<button onclick="openPdf('${m.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="Open PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
+                            <button onclick="editMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-blue-600 transition"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="deleteMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-red-600 transition"><i class="fa-solid fa-trash"></i></button>
                         </div>
                     </td>
                 </tr>
@@ -350,9 +348,7 @@
 
         window.openPdf = (id) => {
             const m = memos.find(x => x.id === id);
-            if (m && m.pdfUrl) {
-                window.open(m.pdfUrl, '_blank');
-            } else if (m && m.pdfData) {
+            if (m && m.pdfData) {
                 const win = window.open();
                 win.document.write(`<iframe src="${m.pdfData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%; position:absolute;" allowfullscreen></iframe>`);
             }
@@ -388,32 +384,32 @@
             }
         };
 
-        window.removeCategory = async (i) => {
+        window.removeCategory = (i) => {
             const cat = categories[i];
-            memos.forEach(m => { 
+            memos.forEach(async m => { 
                 if(m.category === cat) {
                     m.category = categories[0] === cat ? categories[1] || 'General' : categories[0];
+                    await setDoc(doc(db, "memos", m.id), m);
                 }
             });
             categories.splice(i, 1);
             saveCats();
-            await setDoc(docRef, { records: memos });
             renderCategoryTools();
             renderTable();
         };
 
-        window.renameCategory = async (i) => {
+        window.renameCategory = (i) => {
             const oldVal = categories[i];
             const newVal = prompt("Enter new name for category:", oldVal);
             if (newVal && newVal.trim() !== "" && !categories.includes(newVal.trim())) {
-                memos.forEach(m => { 
+                memos.forEach(async m => { 
                     if(m.category === oldVal) {
                         m.category = newVal.trim();
+                        await setDoc(doc(db, "memos", m.id), m);
                     }
                 });
                 categories[i] = newVal.trim();
                 saveCats();
-                await setDoc(docRef, { records: memos });
                 renderCategoryTools();
                 renderTable();
             }
@@ -426,8 +422,7 @@
             document.getElementById('modalTitle').textContent = "New Memo Entry";
             document.getElementById('memoForm').reset();
             document.getElementById('memoId').value = "";
-            window.currentEditPdfUrl = '';
-            window.currentEditStoragePath = '';
+            memoPdfData.value = "";
             pdfUploadStatus.textContent = "";
             setTimeout(() => memoModal.querySelector('div').classList.remove('translate-x-full'), 10);
         };
@@ -441,49 +436,36 @@
         document.getElementById('cancelFormBtn').onclick = closeM;
 
         saveFormBtn.onclick = async () => {
-            const id = document.getElementById('memoId').value || Date.now().toString();
-            
-            if (!document.getElementById('memoRef').value || !document.getElementById('memoTopic').value) {
+            const id = document.getElementById('memoId').value;
+            const data = {
+                id: id || Date.now().toString(),
+                ref: document.getElementById('memoRef').value,
+                topic: document.getElementById('memoTopic').value,
+                url: document.getElementById('memoLink').value,
+                category: document.getElementById('memoCategory').value,
+                conditions: document.getElementById('memoConditions').value,
+                application: document.getElementById('memoApplication').value,
+                pdfData: memoPdfData.value
+            };
+
+            if (!data.ref || !data.topic) {
                 return showToast("Ref and Topic are required", "error");
+            }
+            if (data.pdfData && data.pdfData.length > 900000) {
+                return showToast("PDF string is too large for database limits.", "error");
             }
 
             saveFormBtn.disabled = true;
             saveSpinner.classList.remove('hidden');
 
             try {
-                let fileUrl = window.currentEditPdfUrl || '';
-                let filePath = window.currentEditStoragePath || '';
-                const file = memoPdfInput.files[0];
-
-                if (file) {
-                    const storagePath = `pdfs/${id}_${file.name}`;
-                    const storageRef = ref(storage, storagePath);
-                    await uploadBytes(storageRef, file);
-                    fileUrl = await getDownloadURL(storageRef);
-                    filePath = storagePath;
-                }
-
-                const data = {
-                    id: id,
-                    ref: document.getElementById('memoRef').value,
-                    topic: document.getElementById('memoTopic').value,
-                    url: document.getElementById('memoLink').value,
-                    category: document.getElementById('memoCategory').value,
-                    conditions: document.getElementById('memoConditions').value,
-                    application: document.getElementById('memoApplication').value,
-                    pdfUrl: fileUrl,
-                    storagePath: filePath
-                };
-
-                const idx = memos.findIndex(m => m.id === id);
+                await setDoc(doc(db, "memos", data.id), data);
+                const idx = memos.findIndex(m => m.id === data.id);
                 if (idx > -1) {
                     memos[idx] = data;
                 } else {
                     memos.push(data);
                 }
-
-                await setDoc(docRef, { records: memos });
-
                 renderTable();
                 closeM();
                 showToast("Saved successfully");
@@ -504,12 +486,8 @@
             document.getElementById('memoCategory').value = m.category;
             document.getElementById('memoConditions').value = m.conditions || '';
             document.getElementById('memoApplication').value = m.application || '';
-            
-            window.currentEditPdfUrl = m.pdfUrl || '';
-            window.currentEditStoragePath = m.storagePath || '';
-            memoPdfInput.value = '';
-            pdfUploadStatus.textContent = (m.pdfUrl || m.pdfData) ? 'Existing PDF retained.' : '';
-            
+            memoPdfData.value = m.pdfData || '';
+            pdfUploadStatus.textContent = m.pdfData ? 'Existing PDF loaded.' : '';
             memoModal.classList.remove('hidden');
             document.getElementById('modalTitle').textContent = "Edit Memo Entry";
             setTimeout(() => memoModal.querySelector('div').classList.remove('translate-x-full'), 10);
@@ -522,16 +500,9 @@
 
         document.getElementById('confirmDeleteBtn').onclick = async () => {
             try {
-                const memoToDelete = memos.find(m => m.id === memoToDeleteId);
+                await deleteDoc(doc(db, "memos", memoToDeleteId));
                 memos = memos.filter(m => m.id !== memoToDeleteId);
-                
-                await setDoc(docRef, { records: memos });
-                
-                if (memoToDelete && memoToDelete.storagePath) {
-                    const fileRef = ref(storage, memoToDelete.storagePath);
-                    await deleteObject(fileRef).catch(e => console.error("PDF deletion ignored", e));
-                }
-
+                // Adjust pagination if deleting the last item on the current page
                 const totalFiltered = memos.filter(m => 
                     ((m.ref && m.ref.toLowerCase().includes(searchInput.value.toLowerCase())) || 
                      (m.topic && m.topic.toLowerCase().includes(searchInput.value.toLowerCase())) || 
@@ -543,7 +514,6 @@
                 if (window.currentPage > updatedTotalPages) {
                     window.currentPage = updatedTotalPages;
                 }
-                
                 renderTable();
                 document.getElementById('deleteConfirmModal').classList.add('hidden');
                 showToast("Entry deleted", "success");
@@ -577,16 +547,10 @@
                     if (Array.isArray(imported)) {
                         for (const m of imported) {
                             if (!m.id) m.id = Date.now().toString() + Math.random().toString().substring(2, 6);
-                            if (m.pdfData && m.pdfData.length > 500000) {
-                                delete m.pdfData;
-                            }
-                            const idx = memos.findIndex(x => x.id === m.id);
-                            if (idx > -1) memos[idx] = m;
-                            else memos.push(m);
+                            await setDoc(doc(db, "memos", m.id), m);
                         }
-                        await setDoc(docRef, { records: memos });
-                        renderTable();
-                        showToast("Imported and updated database");
+                        await loadMemos();
+                        showToast("Imported to database");
                     }
                 } catch (err) {
                     showToast("Failed to import file", "error");
@@ -607,10 +571,21 @@
         memoPdfInput.onchange = (e) => {
             const file = e.target.files[0];
             if (!file) {
+                memoPdfData.value = '';
                 pdfUploadStatus.textContent = '';
                 return;
             }
-            pdfUploadStatus.textContent = `Selected: ${file.name} (${Math.round(file.size/1024)}KB)`;
+            if (file.size > 700 * 1024) {
+                showToast("File too large. Limit is 700KB.", "error");
+                memoPdfInput.value = '';
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                memoPdfData.value = event.target.result;
+                pdfUploadStatus.textContent = `Loaded: ${file.name} (${Math.round(file.size/1024)}KB)`;
+            };
+            reader.readAsDataURL(file);
         };
 
         renderCategoryTools();
