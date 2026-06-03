@@ -3,7 +3,626 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Government Memo Directory (BETA)</tit<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Government Memo Directory (BETA)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+                <h1 class="text-xl font-bold text-slate-900 tracking-tight">Government Memo Directory (BETA)</h1>
+                <p class="text-xs text-slate-500 mt-0.5">Reference documents and application rules for government memos</p>
+            </div>
+            <div class="flex gap-2 w-full sm:w-auto">
+                <input type="file" id="importInput" class="hidden" accept=".json">
+                <button id="importBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-file-import"></i> Import
+                </button>
+                <button id="manageCatsBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-tags"></i> Categories
+                </button>
+                <button id="exportBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-download"></i> Export
+                </button>
+                <button id="addMemoBtn" class="flex-1 sm:flex-initial px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-plus"></i> Add Memo
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full flex flex-col gap-6">
+        
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 items-center bg-white p-4 border border-slate-200 rounded-xl shadow-sm">
+            <div class="sm:col-span-2 relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <i class="fa-solid fa-magnifying-glass text-sm"></i>
+                </span>
+                <input type="text" id="searchInput" placeholder="Search reference, topic, or application..." class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/50">
+            </div>
+            
+            <div class="relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <i class="fa-solid fa-filter text-sm"></i>
+                </span>
+                <input type="text" id="condSearchInput" placeholder="Search conditions..." class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/50">
+            </div>
+            
+            <div>
+                <select id="categoryFilter" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <option value="all">All Categories</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex-1 flex flex-col min-h-[500px]">
+            <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                <h2 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <i class="fa-solid fa-folder-open text-slate-500"></i> Memos
+                </h2>
+                <div class="bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                    <span id="memoCount">0</span> Records
+                </div>
+            </div>
+
+            <div class="overflow-x-auto custom-scroll flex-1">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-50/50 border-b border-slate-200 text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                            <th class="py-3 px-4 w-40">Memo Reference</th>
+                            <th class="py-3 px-4">Topic / Scope</th>
+                            <th class="py-3 px-4">Conditions</th>
+                            <th class="py-3 px-4">Tender Application</th>
+                            <th class="py-3 px-4">Category</th>
+                            <th class="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="memoTableBody" class="divide-y divide-slate-100 text-sm"></tbody>
+                </table>
+            </div>
+
+            <div class="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between sm:px-6">
+                <div class="flex-1 flex justify-between sm:hidden">
+                    <button onclick="window.changePage(window.currentPage - 1)" class="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Previous</button>
+                    <button onclick="window.changePage(window.currentPage + 1)" class="relative ml-3 inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Next</button>
+                </div>
+                <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                    <div>
+                        <p class="text-xs text-slate-700">
+                            Showing <span class="font-medium" id="pageStartItem">0</span> to <span class="font-medium" id="pageEndItem">0</span> of <span class="font-medium" id="totalFilteredItems">0</span> results
+                        </p>
+                    </div>
+                    <div>
+                        <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination" id="paginationControls"></nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="memoModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex justify-end transition-opacity duration-300">
+        <div class="bg-white w-full max-w-lg h-full p-6 shadow-2xl flex flex-col justify-between transform transition-transform duration-300 translate-x-full">
+            <div class="overflow-y-auto custom-scroll flex-1 pr-1 pb-4">
+                <div class="flex justify-between items-center pb-4 border-b border-slate-100">
+                    <h2 class="text-base font-bold text-slate-900" id="modalTitle">New Memo Entry</h2>
+                    <button id="closeModalBtn" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+                </div>
+                <form id="memoForm" class="mt-6 space-y-4">
+                    <input type="hidden" id="memoId">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Reference No.</label>
+                        <input type="text" id="memoRef" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="e.g. DEVB(W) 510/34/01">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Topic / Scope</label>
+                        <input type="text" id="memoTopic" required class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="e.g. Assessing PII for Works Contracts">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Document Link (URL)</label>
+                        <input type="url" id="memoLink" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="https://...">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Upload Local PDF</label>
+                        <input type="file" id="memoPdfInput" accept=".pdf" class="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition">
+                        <div id="pdfUploadStatus" class="text-[10px] text-slate-400 mt-1"></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Category</label>
+                            <select id="memoCategory" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Conditions</label>
+                            <input type="text" id="memoConditions" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="e.g. Mandatory, > $1000M">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Primary Tender Application</label>
+                        <textarea id="memoApplication" rows="4" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Describe how this memo is used..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="pt-4 border-t border-slate-100 flex gap-3">
+                <button id="cancelFormBtn" type="button" class="flex-1 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition">Cancel</button>
+                <button id="saveFormBtn" type="button" class="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition flex items-center justify-center gap-2">
+                    <span>Save Entry</span>
+                    <i id="saveSpinner" class="fa-solid fa-circle-notch fa-spin hidden"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="catModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-xl p-6 shadow-2xl">
+            <div class="flex justify-between items-center pb-4 border-b border-slate-100">
+                <h2 class="text-base font-bold text-slate-900">Manage Categories</h2>
+                <button id="closeCatModalBtn" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="mt-4 space-y-4">
+                <div class="flex gap-2">
+                    <input type="text" id="newCatInput" class="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="New Category Name">
+                    <button id="addCatBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Add</button>
+                </div>
+                <div id="catList" class="max-h-60 overflow-y-auto custom-scroll space-y-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="deleteConfirmModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-xl p-6 shadow-2xl">
+            <div class="text-center">
+                <div class="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fa-solid fa-trash-can text-xl"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Delete Reference?</h3>
+                <p class="text-sm text-slate-500 mb-6">This action cannot be undone.</p>
+                <div class="flex gap-3">
+                    <button id="cancelDeleteBtn" class="flex-1 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
+                    <button id="confirmDeleteBtn" class="flex-1 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">Yes, Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed bottom-4 right-4 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 transform translate-y-20 opacity-0 transition-all duration-300 z-50 border border-slate-700">
+        <span id="toastIcon"></span>
+        <span id="toastMessage" class="text-xs font-medium"></span>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-storage.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCtQbVm91_lsmzz2XcX60bhUCYH0CjRb_E",
+            authDomain: "memosummary.firebaseapp.com",
+            projectId: "memosummary",
+            storageBucket: "memosummary.firebasestorage.app",
+            messagingSenderId: "368924924231",
+            appId: "1:368924924231:web:db54991db4a9d6afe5d462",
+            measurementId: "G-798K8NH74R"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+        const docRef = doc(db, "appData", "memoConfig");
+
+        let memos = [];
+        const defaultCats = ["Insurance / PII", "Conditions of Contract", "Technical Specifications", "Procurement Guidelines"];
+        let categories = JSON.parse(localStorage.getItem('tender_categories')) || defaultCats;
+        let memoToDeleteId = null;
+
+        window.currentPage = 1;
+        const itemsPerPage = 20;
+        let totalPages = 1;
+
+        const memoTableBody = document.getElementById('memoTableBody');
+        const memoCount = document.getElementById('memoCount');
+        const searchInput = document.getElementById('searchInput');
+        const condSearchInput = document.getElementById('condSearchInput');
+        const categoryFilter = document.getElementById('categoryFilter');
+        const memoModal = document.getElementById('memoModal');
+        const catModal = document.getElementById('catModal');
+        const catList = document.getElementById('catList');
+        const memoCategorySelect = document.getElementById('memoCategory');
+        const importInput = document.getElementById('importInput');
+        const memoPdfInput = document.getElementById('memoPdfInput');
+        const pdfUploadStatus = document.getElementById('pdfUploadStatus');
+        const saveSpinner = document.getElementById('saveSpinner');
+        const saveFormBtn = document.getElementById('saveFormBtn');
+
+        function showToast(message, type = "success") {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMessage').textContent = message;
+            document.getElementById('toastIcon').innerHTML = type === "success" ? '<i class="fa-solid fa-circle-check text-emerald-400"></i>' : '<i class="fa-solid fa-circle-exclamation text-amber-400"></i>';
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
+        }
+
+        async function loadMemos() {
+            try {
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    memos = docSnap.data().records || [];
+                } else {
+                    memos = [];
+                    await setDoc(docRef, { records: [] });
+                }
+                renderTable();
+            } catch (error) {
+                showToast("Failed to load data from database", "error");
+            }
+        }
+
+        function renderTable() {
+            const term = searchInput.value.toLowerCase();
+            const condTerm = condSearchInput.value.toLowerCase();
+            const cat = categoryFilter.value;
+            
+            const filtered = memos.filter(m => 
+                ((m.ref && m.ref.toLowerCase().includes(term)) || 
+                 (m.topic && m.topic.toLowerCase().includes(term)) || 
+                 (m.application && m.application.toLowerCase().includes(term))) && 
+                ((m.conditions || '').toLowerCase().includes(condTerm)) &&
+                (cat === 'all' || m.category === cat)
+            );
+            
+            const totalItems = filtered.length;
+            totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+            
+            if (window.currentPage > totalPages) window.currentPage = totalPages;
+            if (window.currentPage < 1) window.currentPage = 1;
+
+            const startIndex = (window.currentPage - 1) * itemsPerPage;
+            const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+            
+            const paginatedMemos = filtered.slice(startIndex, endIndex);
+
+            memoCount.textContent = totalItems;
+            document.getElementById('totalFilteredItems').textContent = totalItems;
+            document.getElementById('pageStartItem').textContent = totalItems === 0 ? 0 : startIndex + 1;
+            document.getElementById('pageEndItem').textContent = endIndex;
+
+            memoTableBody.innerHTML = paginatedMemos.map(m => `
+                <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+                    <td class="py-3 px-4 font-semibold">${m.ref || ''}</td>
+                    <td class="py-3 px-4">${m.topic || ''}</td>
+                    <td class="py-3 px-4"><span class="px-2 py-0.5 bg-slate-100 rounded text-[10px] text-slate-600 font-medium">${m.conditions || 'N/A'}</span></td>
+                    <td class="py-3 px-4 text-xs text-slate-500 leading-relaxed">${m.application || ''}</td>
+                    <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs border bg-white border-slate-200 text-slate-700">${m.category || ''}</span></td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                        <div class="flex justify-end gap-1">
+                            ${m.url ? `<a href="${m.url}" target="_blank" class="p-1.5 text-slate-400 hover:text-indigo-600 transition" title="Open Link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : ''}
+                            ${(m.pdfUrl || m.pdfData) ? `<button onclick="openPdf('${m.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="Open PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
+                            <button onclick="editMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-blue-600 transition" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="deleteMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-red-600 transition" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            renderPaginationControls();
+        }
+
+        function renderPaginationControls() {
+            const container = document.getElementById('paginationControls');
+            let html = '';
+
+            html += `<button onclick="window.changePage(${window.currentPage - 1})" class="relative inline-flex items-center rounded-l-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50" ${window.currentPage === 1 ? 'disabled' : ''}>
+                        <span class="sr-only">Previous</span><i class="fa-solid fa-chevron-left h-4 w-4"></i>
+                     </button>`;
+
+            for(let i = 1; i <= totalPages; i++) {
+                if(i === 1 || i === totalPages || (i >= window.currentPage - 1 && i <= window.currentPage + 1)) {
+                    const isCurrent = i === window.currentPage;
+                    const activeClass = isCurrent ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600' : 'text-slate-900 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0';
+                    html += `<button onclick="window.changePage(${i})" class="relative inline-flex items-center px-4 py-2 text-sm font-semibold ${activeClass}">${i}</button>`;
+                } else if (i === window.currentPage - 2 || i === window.currentPage + 2) {
+                    html += `<span class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 focus:outline-offset-0">...</span>`;
+                }
+            }
+
+            html += `<button onclick="window.changePage(${window.currentPage + 1})" class="relative inline-flex items-center rounded-r-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50" ${window.currentPage === totalPages ? 'disabled' : ''}>
+                        <span class="sr-only">Next</span><i class="fa-solid fa-chevron-right h-4 w-4"></i>
+                     </button>`;
+
+            container.innerHTML = html;
+        }
+
+        window.changePage = (page) => {
+            if (page >= 1 && page <= totalPages) {
+                window.currentPage = page;
+                renderTable();
+            }
+        };
+
+        window.openPdf = (id) => {
+            const m = memos.find(x => x.id === id);
+            if (m && m.pdfUrl) {
+                window.open(m.pdfUrl, '_blank');
+            } else if (m && m.pdfData) {
+                const win = window.open();
+                win.document.write(`<iframe src="${m.pdfData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%; position:absolute;" allowfullscreen></iframe>`);
+            }
+        };
+
+        function renderCategoryTools() {
+            const filterVal = categoryFilter.value;
+            categoryFilter.innerHTML = '<option value="all">All Categories</option>' + 
+                categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            categoryFilter.value = categories.includes(filterVal) ? filterVal : 'all';
+
+            memoCategorySelect.innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+
+            catList.innerHTML = categories.map((c, i) => `
+                <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
+                    <span class="text-sm font-medium">${c}</span>
+                    <div class="flex gap-1">
+                        <button onclick="renameCategory(${i})" class="text-slate-400 hover:text-blue-600 p-1"><i class="fa-solid fa-pen text-xs"></i></button>
+                        <button onclick="removeCategory(${i})" class="text-slate-400 hover:text-red-600 p-1"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('addCatBtn').onclick = () => {
+            const val = document.getElementById('newCatInput').value.trim();
+            if (val && !categories.includes(val)) {
+                categories.push(val);
+                document.getElementById('newCatInput').value = '';
+                saveCats();
+                renderCategoryTools();
+                showToast("Category added");
+            }
+        };
+
+        window.removeCategory = async (i) => {
+            const cat = categories[i];
+            memos.forEach(m => { 
+                if(m.category === cat) {
+                    m.category = categories[0] === cat ? categories[1] || 'General' : categories[0];
+                }
+            });
+            categories.splice(i, 1);
+            saveCats();
+            await setDoc(docRef, { records: memos });
+            renderCategoryTools();
+            renderTable();
+        };
+
+        window.renameCategory = async (i) => {
+            const oldVal = categories[i];
+            const newVal = prompt("Enter new name for category:", oldVal);
+            if (newVal && newVal.trim() !== "" && !categories.includes(newVal.trim())) {
+                memos.forEach(m => { 
+                    if(m.category === oldVal) {
+                        m.category = newVal.trim();
+                    }
+                });
+                categories[i] = newVal.trim();
+                saveCats();
+                await setDoc(docRef, { records: memos });
+                renderCategoryTools();
+                renderTable();
+            }
+        };
+
+        const saveCats = () => localStorage.setItem('tender_categories', JSON.stringify(categories));
+
+        document.getElementById('addMemoBtn').onclick = () => {
+            memoModal.classList.remove('hidden');
+            document.getElementById('modalTitle').textContent = "New Memo Entry";
+            document.getElementById('memoForm').reset();
+            document.getElementById('memoId').value = "";
+            window.currentEditPdfUrl = '';
+            window.currentEditStoragePath = '';
+            pdfUploadStatus.textContent = "";
+            setTimeout(() => memoModal.querySelector('div').classList.remove('translate-x-full'), 10);
+        };
+
+        const closeM = () => {
+            memoModal.querySelector('div').classList.add('translate-x-full');
+            setTimeout(() => memoModal.classList.add('hidden'), 300);
+        };
+
+        document.getElementById('closeModalBtn').onclick = closeM;
+        document.getElementById('cancelFormBtn').onclick = closeM;
+
+        saveFormBtn.onclick = async () => {
+            const id = document.getElementById('memoId').value || Date.now().toString();
+            
+            if (!document.getElementById('memoRef').value || !document.getElementById('memoTopic').value) {
+                return showToast("Ref and Topic are required", "error");
+            }
+
+            saveFormBtn.disabled = true;
+            saveSpinner.classList.remove('hidden');
+
+            try {
+                let fileUrl = window.currentEditPdfUrl || '';
+                let filePath = window.currentEditStoragePath || '';
+                const file = memoPdfInput.files[0];
+
+                if (file) {
+                    const storagePath = `pdfs/${id}_${file.name}`;
+                    const storageRef = ref(storage, storagePath);
+                    await uploadBytes(storageRef, file);
+                    fileUrl = await getDownloadURL(storageRef);
+                    filePath = storagePath;
+                }
+
+                const data = {
+                    id: id,
+                    ref: document.getElementById('memoRef').value,
+                    topic: document.getElementById('memoTopic').value,
+                    url: document.getElementById('memoLink').value,
+                    category: document.getElementById('memoCategory').value,
+                    conditions: document.getElementById('memoConditions').value,
+                    application: document.getElementById('memoApplication').value,
+                    pdfUrl: fileUrl,
+                    storagePath: filePath
+                };
+
+                const idx = memos.findIndex(m => m.id === id);
+                if (idx > -1) {
+                    memos[idx] = data;
+                } else {
+                    memos.push(data);
+                }
+
+                await setDoc(docRef, { records: memos });
+
+                renderTable();
+                closeM();
+                showToast("Saved successfully");
+            } catch (error) {
+                showToast("Error saving to database", "error");
+            } finally {
+                saveFormBtn.disabled = false;
+                saveSpinner.classList.add('hidden');
+            }
+        };
+
+        window.editMemo = (id) => {
+            const m = memos.find(x => x.id === id);
+            document.getElementById('memoId').value = m.id;
+            document.getElementById('memoRef').value = m.ref;
+            document.getElementById('memoTopic').value = m.topic;
+            document.getElementById('memoLink').value = m.url || '';
+            document.getElementById('memoCategory').value = m.category;
+            document.getElementById('memoConditions').value = m.conditions || '';
+            document.getElementById('memoApplication').value = m.application || '';
+            
+            window.currentEditPdfUrl = m.pdfUrl || '';
+            window.currentEditStoragePath = m.storagePath || '';
+            memoPdfInput.value = '';
+            pdfUploadStatus.textContent = (m.pdfUrl || m.pdfData) ? 'Existing PDF retained.' : '';
+            
+            memoModal.classList.remove('hidden');
+            document.getElementById('modalTitle').textContent = "Edit Memo Entry";
+            setTimeout(() => memoModal.querySelector('div').classList.remove('translate-x-full'), 10);
+        };
+
+        window.deleteMemo = (id) => {
+            memoToDeleteId = id;
+            document.getElementById('deleteConfirmModal').classList.remove('hidden');
+        };
+
+        document.getElementById('confirmDeleteBtn').onclick = async () => {
+            try {
+                const memoToDelete = memos.find(m => m.id === memoToDeleteId);
+                memos = memos.filter(m => m.id !== memoToDeleteId);
+                
+                await setDoc(docRef, { records: memos });
+                
+                if (memoToDelete && memoToDelete.storagePath) {
+                    const fileRef = ref(storage, memoToDelete.storagePath);
+                    await deleteObject(fileRef).catch(e => console.error("PDF deletion ignored", e));
+                }
+
+                const totalFiltered = memos.filter(m => 
+                    ((m.ref && m.ref.toLowerCase().includes(searchInput.value.toLowerCase())) || 
+                     (m.topic && m.topic.toLowerCase().includes(searchInput.value.toLowerCase())) || 
+                     (m.application && m.application.toLowerCase().includes(searchInput.value.toLowerCase()))) && 
+                    ((m.conditions || '').toLowerCase().includes(condSearchInput.value.toLowerCase())) &&
+                    (categoryFilter.value === 'all' || m.category === categoryFilter.value)
+                ).length;
+                const updatedTotalPages = Math.ceil(totalFiltered / itemsPerPage) || 1;
+                if (window.currentPage > updatedTotalPages) {
+                    window.currentPage = updatedTotalPages;
+                }
+                
+                renderTable();
+                document.getElementById('deleteConfirmModal').classList.add('hidden');
+                showToast("Entry deleted", "success");
+            } catch (error) {
+                showToast("Error deleting from database", "error");
+            }
+        };
+
+        document.getElementById('cancelDeleteBtn').onclick = () => document.getElementById('deleteConfirmModal').classList.add('hidden');
+
+        document.getElementById('manageCatsBtn').onclick = () => catModal.classList.remove('hidden');
+        document.getElementById('closeCatModalBtn').onclick = () => catModal.classList.add('hidden');
+
+        document.getElementById('exportBtn').onclick = () => {
+            const blob = new Blob([JSON.stringify(memos, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'tender_memos.json';
+            a.click();
+        };
+
+        document.getElementById('importBtn').onclick = () => importInput.click();
+        importInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const imported = JSON.parse(event.target.result);
+                    if (Array.isArray(imported)) {
+                        for (const m of imported) {
+                            if (!m.id) m.id = Date.now().toString() + Math.random().toString().substring(2, 6);
+                            if (m.pdfData && m.pdfData.length > 500000) {
+                                delete m.pdfData;
+                            }
+                            const idx = memos.findIndex(x => x.id === m.id);
+                            if (idx > -1) memos[idx] = m;
+                            else memos.push(m);
+                        }
+                        await setDoc(docRef, { records: memos });
+                        renderTable();
+                        showToast("Imported and updated database");
+                    }
+                } catch (err) {
+                    showToast("Failed to import file", "error");
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        const handleFilterChange = () => {
+            window.currentPage = 1;
+            renderTable();
+        };
+
+        searchInput.oninput = handleFilterChange;
+        condSearchInput.oninput = handleFilterChange;
+        categoryFilter.onchange = handleFilterChange;
+
+        memoPdfInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) {
+                pdfUploadStatus.textContent = '';
+                return;
+            }
+            pdfUploadStatus.textContent = `Selected: ${file.name} (${Math.round(file.size/1024)}KB)`;
+        };
+
+        renderCategoryTools();
+        loadMemos();
+    </script>
+</body>
+</html>le>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
