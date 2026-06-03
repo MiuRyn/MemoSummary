@@ -28,6 +28,9 @@
                 <button id="importBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-file-import"></i> Import
                 </button>
+                <button id="importDevbBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-blue-200 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-50 transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-cloud-arrow-down"></i> Import DEVB
+                </button>
                 <button id="manageCatsBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-tags"></i> Categories
                 </button>
@@ -227,6 +230,10 @@
         let categories = JSON.parse(localStorage.getItem('tender_categories')) || defaultCats;
         let memoToDeleteId = null;
 
+        const URL_MEMO_CHUNK_COLLECTION = "appData";
+        const URL_MEMO_CHUNK_PREFIX = "memoChunk_";
+        const URL_MEMO_CHUNK_SIZE = 100;
+
         // Pagination state
         window.currentPage = 1;
         const itemsPerPage = 20;
@@ -256,27 +263,198 @@
             setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
         }
 
+        function cleanText(value) {
+            return (value || '').replace(/\s+/g, ' ').trim();
+        }
+
+        function getUrlMemoKey(memo) {
+            return cleanText((memo && memo.url) || (memo && memo.ref) || (memo && memo.id) || "");
+        }
+
+        function dedupeMemosByUrlRefId(records) {
+            const map = new Map();
+
+            records.forEach((record) => {
+                const key = getUrlMemoKey(record);
+                if (!key) return;
+
+                const existing = map.get(key);
+                map.set(key, {
+                    ...(existing || {}),
+                    ...record,
+                    id: (existing && existing.id) || record.id
+                });
+            });
+
+            return Array.from(map.values());
+        }
+
+        async function loadUrlMemoChunks() {
+            const querySnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
+            const chunkDocs = [];
+
+            querySnapshot.forEach((snapshot) => {
+                if (!snapshot.id.startsWith(URL_MEMO_CHUNK_PREFIX)) return;
+                const data = snapshot.data();
+                if (!Array.isArray(data.memos)) return;
+
+                chunkDocs.push({
+                    id: snapshot.id,
+                    memos: data.memos
+                });
+            });
+
+            chunkDocs.sort((a, b) => a.id.localeCompare(b.id));
+
+            return dedupeMemosByUrlRefId(
+                chunkDocs.flatMap(chunk => chunk.memos)
+            );
+        }
+
+        async function overwriteUrlMemoChunks(urlMemos) {
+            const cleanUrlMemos = dedupeMemosByUrlRefId(
+                urlMemos
+                    .filter(memo => memo && cleanText(memo.url || ""))
+                    .map(memo => ({
+                        ...memo,
+                        pdfData: memo.pdfData || ""
+                    }))
+            ).sort((a, b) => cleanText(a.ref || "").localeCompare(cleanText(b.ref || "")));
+
+            const existingSnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
+            const deletes = [];
+
+            existingSnapshot.forEach((snapshot) => {
+                if (snapshot.id.startsWith(URL_MEMO_CHUNK_PREFIX)) {
+                    deletes.push(deleteDoc(doc(db, URL_MEMO_CHUNK_COLLECTION, snapshot.id)));
+                }
+            });
+
+            await Promise.all(deletes);
+
+            const writes = [];
+            for (let i = 0; i < cleanUrlMemos.length; i += URL_MEMO_CHUNK_SIZE) {
+                const chunkNumber = String(Math.floor(i / URL_MEMO_CHUNK_SIZE) + 1).padStart(3, "0");
+                const chunk = cleanUrlMemos.slice(i, i + URL_MEMO_CHUNK_SIZE);
+
+                writes.push(setDoc(doc(db, URL_MEMO_CHUNK_COLLECTION, `${URL_MEMO_CHUNK_PREFIX}${chunkNumber}`), {
+                    updatedAt: new Date().toISOString(),
+                    count: chunk.length,
+                    memos: chunk
+                }));
+            }
+
+            await Promise.all(writes);
+        }
+
+        async function upsertUrlMemoToChunks(memo) {
+            const urlMemos = await loadUrlMemoChunks();
+            const key = getUrlMemoKey(memo);
+            const existingIndex = urlMemos.findIndex(item => getUrlMemoKey(item) === key);
+
+            if (existingIndex >= 0) {
+                urlMemos[existingIndex] = {
+                    ...urlMemos[existingIndex],
+                    ...memo,
+                    id: urlMemos[existingIndex].id || memo.id
+                };
+            } else {
+                urlMemos.push(memo);
+            }
+
+            await overwriteUrlMemoChunks(urlMemos);
+        }
+
+        async function removeUrlMemoFromChunks(memo) {
+            const key = getUrlMemoKey(memo);
+            const urlMemos = await loadUrlMemoChunks();
+            await overwriteUrlMemoChunks(urlMemos.filter(item => getUrlMemoKey(item) !== key));
+        }
+
+        async function saveMemoRecord(data) {
+            if (cleanText(data.url || "")) {
+                await upsertUrlMemoToChunks(data);
+
+                try {
+                    await deleteDoc(doc(db, "memos", data.id));
+                } catch {
+                    // It may not exist as an individual document.
+                }
+
+                return;
+            }
+
+            await setDoc(doc(db, "memos", data.id), data);
+        }
+
+        async function deleteMemoRecord(memo) {
+            if (memo && cleanText(memo.url || "")) {
+                await removeUrlMemoFromChunks(memo);
+
+                try {
+                    await deleteDoc(doc(db, "memos", memo.id));
+                } catch {
+                    // It may not exist as an individual document.
+                }
+
+                return;
+            }
+
+            await deleteDoc(doc(db, "memos", memo.id));
+        }
+
+        async function cleanupIndividualUrlDocuments(urlMemos) {
+            const keys = new Set(urlMemos.map(getUrlMemoKey).filter(Boolean));
+            const querySnapshot = await getDocs(collection(db, "memos"));
+            const deletes = [];
+
+            querySnapshot.forEach((snapshot) => {
+                const data = snapshot.data();
+                const key = getUrlMemoKey(data);
+
+                if (key && keys.has(key)) {
+                    deletes.push(deleteDoc(doc(db, "memos", snapshot.id)));
+                }
+            });
+
+            await Promise.all(deletes);
+            return deletes.length;
+        }
+
         async function loadMemos() {
             try {
-                const querySnapshot = await getDocs(collection(db, "memos"));
-                memos = [];
-                querySnapshot.forEach((doc) => {
-                    memos.push(doc.data());
+                const [urlMemos, querySnapshot] = await Promise.all([
+                    loadUrlMemoChunks(),
+                    getDocs(collection(db, "memos"))
+                ]);
+
+                const individualMemos = [];
+
+                querySnapshot.forEach((snapshot) => {
+                    const data = snapshot.data();
+
+                    if (!cleanText(data.url || "")) {
+                        individualMemos.push(data);
+                    }
                 });
+
+                memos = dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
                 renderTable();
             } catch (error) {
+                console.error(error);
                 showToast("Failed to load data from database", "error");
             }
         }
 
         function formatMemoDate(dateValue) {
-            if (!dateValue) return '';
-            const parsed = new Date(`${dateValue}T00:00:00`);
-            if (Number.isNaN(parsed.getTime())) return dateValue;
+            if (!dateValue) return "";
+            const raw = cleanText(dateValue);
+            const parsed = new Date(`${raw}T00:00:00`);
+            if (Number.isNaN(parsed.getTime())) return raw;
             return parsed.toLocaleDateString(undefined, {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric'
+                year: "numeric",
+                month: "short",
+                day: "numeric"
             });
         }
 
@@ -287,8 +465,8 @@
             
             const filtered = memos.filter(m => 
                 ((m.ref && m.ref.toLowerCase().includes(term)) || 
+                 (m.date && m.date.toLowerCase().includes(term)) ||
                  (m.topic && m.topic.toLowerCase().includes(term)) || 
-                 (m.date && m.date.toLowerCase().includes(term)) || 
                  (m.application && m.application.toLowerCase().includes(term))) && 
                 ((m.conditions || '').toLowerCase().includes(condTerm)) &&
                 (cat === 'all' || m.category === cat)
@@ -366,10 +544,29 @@
 
         window.openPdf = (id) => {
             const m = memos.find(x => x.id === id);
-            if (m && m.pdfData) {
-                const win = window.open();
-                win.document.write(`<iframe src="${m.pdfData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%; position:absolute;" allowfullscreen></iframe>`);
+            if (!m || !m.pdfData) return;
+
+            const win = window.open('', '_blank');
+            if (!win) {
+                showToast("Popup blocked. Please allow popups for this site.", "error");
+                return;
             }
+
+            win.document.open();
+            win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Viewer</title>
+    <style>
+        html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+        iframe { width: 100%; height: 100%; border: none; }
+    </style>
+</head>
+<body>
+    <iframe src="${m.pdfData}" allowfullscreen></iframe>
+</body>
+</html>`);
+            win.document.close();
         };
 
         function renderCategoryTools() {
@@ -478,7 +675,12 @@
             saveSpinner.classList.remove('hidden');
 
             try {
-                await setDoc(doc(db, "memos", data.id), data);
+                const previousMemo = memos.find(m => m.id === data.id);
+                if (previousMemo && cleanText(previousMemo.url || "") && !cleanText(data.url || "")) {
+                    await removeUrlMemoFromChunks(previousMemo);
+                }
+
+                await saveMemoRecord(data);
                 const idx = memos.findIndex(m => m.id === data.id);
                 if (idx > -1) {
                     memos[idx] = data;
@@ -520,13 +722,15 @@
 
         document.getElementById('confirmDeleteBtn').onclick = async () => {
             try {
-                await deleteDoc(doc(db, "memos", memoToDeleteId));
+                const memoToDelete = memos.find(m => m.id === memoToDeleteId);
+                if (!memoToDelete) throw new Error("Memo was not found.");
+                await deleteMemoRecord(memoToDelete);
                 memos = memos.filter(m => m.id !== memoToDeleteId);
                 // Adjust pagination if deleting the last item on the current page
                 const totalFiltered = memos.filter(m => 
                     ((m.ref && m.ref.toLowerCase().includes(searchInput.value.toLowerCase())) || 
+                     (m.date && m.date.toLowerCase().includes(searchInput.value.toLowerCase())) ||
                      (m.topic && m.topic.toLowerCase().includes(searchInput.value.toLowerCase())) || 
-                     (m.date && m.date.toLowerCase().includes(searchInput.value.toLowerCase())) || 
                      (m.application && m.application.toLowerCase().includes(searchInput.value.toLowerCase()))) && 
                     ((m.conditions || '').toLowerCase().includes(condSearchInput.value.toLowerCase())) &&
                     (categoryFilter.value === 'all' || m.category === categoryFilter.value)
@@ -548,6 +752,342 @@
         document.getElementById('manageCatsBtn').onclick = () => catModal.classList.remove('hidden');
         document.getElementById('closeCatModalBtn').onclick = () => catModal.classList.add('hidden');
 
+
+        const DEVB_BASE_URL = "https://www.devb.gov.hk";
+        const DEVB_DATA_JS_URL = "https://www.devb.gov.hk/filemanager/technicalcirculars/list_technicalcirculars_53.js";
+        const DEVB_DATA_PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(DEVB_DATA_JS_URL)}`;
+
+        function absoluteDEVBUrl(path) {
+            if (!path) return "";
+            return new URL(path, DEVB_BASE_URL).href;
+        }
+
+        function createStableDEVBId(circularNumber, url) {
+            const key = `${circularNumber || ""}-${url || ""}`;
+            return `devb-${btoa(unescape(encodeURIComponent(key))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 36)}`;
+        }
+
+        function normalizeDEVBDate(issueDate) {
+            const raw = cleanText(issueDate || "");
+            const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (!match) return raw;
+            const day = match[1].padStart(2, "0");
+            const month = match[2].padStart(2, "0");
+            const year = match[3];
+            return `${year}-${month}-${day}`;
+        }
+
+        function isImportableDEVBRecord(item) {
+            return Boolean(
+                item &&
+                typeof item === "object" &&
+                !Array.isArray(item) &&
+                cleanText(item.CircularNumber || "") &&
+                cleanText(item.Title || "") &&
+                Array.isArray(item.Files) &&
+                item.Files.some(filePath => cleanText(filePath || ""))
+            );
+        }
+
+        function normalizeDEVBItem(item) {
+            const pdfPath = Array.isArray(item.Files) && item.Files.length > 0 ? item.Files[0] : "";
+            const circularNumber = cleanText(item.CircularNumber || "");
+            const title = cleanText(item.Title || "");
+            const issueDate = cleanText(item.IssueDate || "");
+            const url = absoluteDEVBUrl(pdfPath);
+
+            return {
+                id: createStableDEVBId(circularNumber, url),
+                ref: circularNumber ? `TC(W) No. ${circularNumber}` : "",
+                date: normalizeDEVBDate(issueDate),
+                topic: title,
+                url,
+                category: "Technical Specifications",
+                conditions: "",
+                application: "",
+                pdfData: "",
+                source: "DEVB Works Technical Circulars"
+            };
+        }
+
+        function isCircularRecord(value) {
+            return isImportableDEVBRecord(value);
+        }
+
+        function getCircularRecordKey(item) {
+            const circularNumber = cleanText(item && item.CircularNumber || "");
+            const title = cleanText(item && item.Title || "");
+            const files = Array.isArray(item && item.Files) ? item.Files.map(filePath => cleanText(filePath || "")).join("|") : "";
+            return `${circularNumber}::${title}::${files}`;
+        }
+
+        function collectCircularRecords(value, output = [], visited = new Set(), depth = 0) {
+            if (!value || depth > 8) return output;
+
+            const valueType = typeof value;
+            if (valueType !== "object" && valueType !== "function") return output;
+            if (visited.has(value)) return output;
+            visited.add(value);
+
+            if (isCircularRecord(value)) {
+                output.push(value);
+                return output;
+            }
+
+            if (Array.isArray(value)) {
+                for (const entry of value) {
+                    collectCircularRecords(entry, output, visited, depth + 1);
+                }
+                return output;
+            }
+
+            for (const key of Object.keys(value)) {
+                try {
+                    collectCircularRecords(value[key], output, visited, depth + 1);
+                } catch {
+                    continue;
+                }
+            }
+
+            return output;
+        }
+
+        function dedupeCircularRecords(records) {
+            const seen = new Set();
+            const unique = [];
+
+            for (const record of records) {
+                const key = getCircularRecordKey(record);
+                if (!key || seen.has(key)) continue;
+                seen.add(key);
+                unique.push(record);
+            }
+
+            return unique;
+        }
+
+        async function loadDEVBItemsViaScriptTag() {
+            const beforeKeys = new Set(Object.keys(window));
+
+            await new Promise((resolve, reject) => {
+                const existingScript = document.querySelector(`script[data-devb-importer="true"]`);
+                if (existingScript) existingScript.remove();
+
+                const script = document.createElement("script");
+                script.src = `${DEVB_DATA_JS_URL}?cacheBust=${Date.now()}`;
+                script.async = true;
+                script.dataset.devbImporter = "true";
+                script.onload = resolve;
+                script.onerror = () => reject(new Error("Could not load DEVB data script tag."));
+                document.head.appendChild(script);
+            });
+
+            const allRecords = [];
+            const candidateKeys = Object.keys(window).filter(key => !beforeKeys.has(key));
+
+            for (const key of candidateKeys) {
+                try {
+                    collectCircularRecords(window[key], allRecords);
+                } catch {
+                    continue;
+                }
+            }
+
+            for (const key of Object.keys(window)) {
+                if (!/circular|technical|tcw|list|data/i.test(key)) continue;
+                try {
+                    collectCircularRecords(window[key], allRecords);
+                } catch {
+                    continue;
+                }
+            }
+
+            const uniqueRecords = dedupeCircularRecords(allRecords);
+
+            if (!uniqueRecords.length) {
+                throw new Error("DEVB script loaded, but no CircularNumber records were exposed on window.");
+            }
+
+            console.info(`DEVB script import found ${uniqueRecords.length} circular records.`);
+            return uniqueRecords;
+        }
+
+        async function fetchDEVBDataJsText() {
+            const urls = [DEVB_DATA_JS_URL, DEVB_DATA_PROXY_URL];
+            let lastError = null;
+
+            for (const url of urls) {
+                try {
+                    const response = await fetch(url, { cache: "no-store" });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const text = await response.text();
+                    if (text && text.includes("CircularNumber")) return text;
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            throw lastError || new Error("Unable to fetch DEVB circular data.");
+        }
+
+        function findMatchingSquareBracket(text, openIndex) {
+            let depth = 0;
+            let inString = false;
+            let stringQuote = "";
+            let escaped = false;
+
+            for (let i = openIndex; i < text.length; i++) {
+                const ch = text[i];
+
+                if (inString) {
+                    if (escaped) {
+                        escaped = false;
+                    } else if (ch === "\\") {
+                        escaped = true;
+                    } else if (ch === stringQuote) {
+                        inString = false;
+                        stringQuote = "";
+                    }
+                    continue;
+                }
+
+                if (ch === '"' || ch === "'") {
+                    inString = true;
+                    stringQuote = ch;
+                    continue;
+                }
+
+                if (ch === "[") depth++;
+                if (ch === "]") depth--;
+
+                if (depth === 0) return i;
+            }
+
+            return -1;
+        }
+
+        function parseDEVBDataJsText(jsText) {
+            if (!jsText.includes("CircularNumber")) {
+                throw new Error("The DEVB JS file was fetched, but no CircularNumber records were found.");
+            }
+
+            const assignmentMatches = Array.from(jsText.matchAll(/(?:var|let|const)?\s*([A-Za-z_$][\w$]*)\s*=\s*\[/g));
+            const allRecords = [];
+
+            for (const match of assignmentMatches) {
+                const firstBracket = jsText.indexOf("[", match.index);
+                const lastBracket = findMatchingSquareBracket(jsText, firstBracket);
+
+                if (firstBracket === -1 || lastBracket === -1 || lastBracket <= firstBracket) continue;
+
+                const arrayText = jsText.slice(firstBracket, lastBracket + 1);
+
+                try {
+                    const parsed = JSON.parse(arrayText);
+                    collectCircularRecords(parsed, allRecords);
+                } catch {
+                    try {
+                        const parsed = Function(`"use strict"; return (${arrayText});`)();
+                        collectCircularRecords(parsed, allRecords);
+                    } catch {
+                        continue;
+                    }
+                }
+            }
+
+            if (!allRecords.length) {
+                const circularRegex = /\{[\s\S]*?"CircularNumber"\s*:\s*"[\s\S]*?\}/g;
+                const objectMatches = jsText.match(circularRegex) || [];
+
+                for (const objectText of objectMatches) {
+                    try {
+                        const parsed = JSON.parse(objectText);
+                        if (isImportableDEVBRecord(parsed)) allRecords.push(parsed);
+                    } catch {
+                        try {
+                            const parsed = Function(`"use strict"; return (${objectText});`)();
+                            if (isImportableDEVBRecord(parsed)) allRecords.push(parsed);
+                        } catch {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            const uniqueRecords = dedupeCircularRecords(allRecords);
+
+            if (!uniqueRecords.length) {
+                throw new Error("Could not parse any circular records from list_technicalcirculars_53.js.");
+            }
+
+            console.info(`DEVB fetch fallback parsed ${uniqueRecords.length} circular records.`);
+            return uniqueRecords;
+        }
+
+        async function loadDEVBItems() {
+            try {
+                return await loadDEVBItemsViaScriptTag();
+            } catch (scriptError) {
+                console.warn("DEVB script-tag import failed. Trying fetch fallback.", scriptError);
+                const jsText = await fetchDEVBDataJsText();
+                return parseDEVBDataJsText(jsText);
+            }
+        }
+
+        async function importDEVBMemos() {
+            const importDevbBtn = document.getElementById("importDevbBtn");
+            const originalText = importDevbBtn ? importDevbBtn.innerHTML : "";
+
+            try {
+                if (importDevbBtn) {
+                    importDevbBtn.disabled = true;
+                    importDevbBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing';
+                }
+
+                showToast("Importing DEVB circulars...");
+
+                const rawItems = await loadDEVBItems();
+
+                if (!Array.isArray(rawItems)) {
+                    throw new Error("DEVB circular data was found, but it is not an array.");
+                }
+
+                const circularRecords = rawItems.filter(isImportableDEVBRecord);
+
+                let importedMemos = circularRecords
+                    .map(normalizeDEVBItem)
+                    .filter(item => item.ref && item.topic && item.url);
+
+                if (!importedMemos.length) {
+                    console.warn("No importable DEVB records found. First raw item sample:", rawItems[0]);
+                    throw new Error(`No valid DEVB circulars parsed. Found ${rawItems.length} raw items. Check Console for first sample.`);
+                }
+
+                const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
+                const newCount = importedMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
+                const updatedCount = importedMemos.length - newCount;
+
+                const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
+                const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...importedMemos]);
+
+                await overwriteUrlMemoChunks(mergedUrlMemos);
+                const cleanedCount = await cleanupIndividualUrlDocuments(importedMemos);
+
+                await loadMemos();
+                showToast(`DEVB import complete: ${newCount} new, ${updatedCount} updated, ${cleanedCount} old individual docs removed`);
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || "Failed to import DEVB circulars", "error");
+            } finally {
+                if (importDevbBtn) {
+                    importDevbBtn.disabled = false;
+                    importDevbBtn.innerHTML = originalText;
+                }
+            }
+        }
+
+        document.getElementById("importDevbBtn").onclick = importDEVBMemos;
+
         document.getElementById('exportBtn').onclick = () => {
             const blob = new Blob([JSON.stringify(memos, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -568,7 +1108,6 @@
                     if (Array.isArray(imported)) {
                         for (const m of imported) {
                             if (!m.id) m.id = Date.now().toString() + Math.random().toString().substring(2, 6);
-                            if (!Object.prototype.hasOwnProperty.call(m, 'date')) m.date = '';
                             await setDoc(doc(db, "memos", m.id), m);
                         }
                         await loadMemos();
