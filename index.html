@@ -90,6 +90,23 @@
                     <tbody id="memoTableBody" class="divide-y divide-slate-100 text-sm"></tbody>
                 </table>
             </div>
+
+            <div class="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between sm:px-6">
+                <div class="flex-1 flex justify-between sm:hidden">
+                    <button onclick="window.changePage(window.currentPage - 1)" class="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Previous</button>
+                    <button onclick="window.changePage(window.currentPage + 1)" class="relative ml-3 inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Next</button>
+                </div>
+                <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                    <div>
+                        <p class="text-xs text-slate-700">
+                            Showing <span class="font-medium" id="pageStartItem">0</span> to <span class="font-medium" id="pageEndItem">0</span> of <span class="font-medium" id="totalFilteredItems">0</span> results
+                        </p>
+                    </div>
+                    <div>
+                        <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination" id="paginationControls"></nav>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
 
@@ -205,6 +222,11 @@
         let categories = JSON.parse(localStorage.getItem('tender_categories')) || defaultCats;
         let memoToDeleteId = null;
 
+        // Pagination state
+        window.currentPage = 1;
+        const itemsPerPage = 20;
+        let totalPages = 1;
+
         const memoTableBody = document.getElementById('memoTableBody');
         const memoCount = document.getElementById('memoCount');
         const searchInput = document.getElementById('searchInput');
@@ -246,6 +268,7 @@
             const term = searchInput.value.toLowerCase();
             const condTerm = condSearchInput.value.toLowerCase();
             const cat = categoryFilter.value;
+            
             const filtered = memos.filter(m => 
                 ((m.ref && m.ref.toLowerCase().includes(term)) || 
                  (m.topic && m.topic.toLowerCase().includes(term)) || 
@@ -253,8 +276,24 @@
                 ((m.conditions || '').toLowerCase().includes(condTerm)) &&
                 (cat === 'all' || m.category === cat)
             );
-            memoCount.textContent = filtered.length;
-            memoTableBody.innerHTML = filtered.map(m => `
+            
+            const totalItems = filtered.length;
+            totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+            
+            if (window.currentPage > totalPages) window.currentPage = totalPages;
+            if (window.currentPage < 1) window.currentPage = 1;
+
+            const startIndex = (window.currentPage - 1) * itemsPerPage;
+            const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+            
+            const paginatedMemos = filtered.slice(startIndex, endIndex);
+
+            memoCount.textContent = totalItems;
+            document.getElementById('totalFilteredItems').textContent = totalItems;
+            document.getElementById('pageStartItem').textContent = totalItems === 0 ? 0 : startIndex + 1;
+            document.getElementById('pageEndItem').textContent = endIndex;
+
+            memoTableBody.innerHTML = paginatedMemos.map(m => `
                 <tr class="hover:bg-slate-50 transition border-b border-slate-100">
                     <td class="py-3 px-4 font-semibold">${m.ref || ''}</td>
                     <td class="py-3 px-4">${m.topic || ''}</td>
@@ -271,7 +310,41 @@
                     </td>
                 </tr>
             `).join('');
+
+            renderPaginationControls();
         }
+
+        function renderPaginationControls() {
+            const container = document.getElementById('paginationControls');
+            let html = '';
+
+            html += `<button onclick="window.changePage(${window.currentPage - 1})" class="relative inline-flex items-center rounded-l-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50" ${window.currentPage === 1 ? 'disabled' : ''}>
+                        <span class="sr-only">Previous</span><i class="fa-solid fa-chevron-left h-4 w-4"></i>
+                     </button>`;
+
+            for(let i = 1; i <= totalPages; i++) {
+                if(i === 1 || i === totalPages || (i >= window.currentPage - 1 && i <= window.currentPage + 1)) {
+                    const isCurrent = i === window.currentPage;
+                    const activeClass = isCurrent ? 'z-10 bg-blue-600 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600' : 'text-slate-900 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0';
+                    html += `<button onclick="window.changePage(${i})" class="relative inline-flex items-center px-4 py-2 text-sm font-semibold ${activeClass}">${i}</button>`;
+                } else if (i === window.currentPage - 2 || i === window.currentPage + 2) {
+                    html += `<span class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 focus:outline-offset-0">...</span>`;
+                }
+            }
+
+            html += `<button onclick="window.changePage(${window.currentPage + 1})" class="relative inline-flex items-center rounded-r-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50" ${window.currentPage === totalPages ? 'disabled' : ''}>
+                        <span class="sr-only">Next</span><i class="fa-solid fa-chevron-right h-4 w-4"></i>
+                     </button>`;
+
+            container.innerHTML = html;
+        }
+
+        window.changePage = (page) => {
+            if (page >= 1 && page <= totalPages) {
+                window.currentPage = page;
+                renderTable();
+            }
+        };
 
         window.openPdf = (id) => {
             const m = memos.find(x => x.id === id);
@@ -429,6 +502,18 @@
             try {
                 await deleteDoc(doc(db, "memos", memoToDeleteId));
                 memos = memos.filter(m => m.id !== memoToDeleteId);
+                // Adjust pagination if deleting the last item on the current page
+                const totalFiltered = memos.filter(m => 
+                    ((m.ref && m.ref.toLowerCase().includes(searchInput.value.toLowerCase())) || 
+                     (m.topic && m.topic.toLowerCase().includes(searchInput.value.toLowerCase())) || 
+                     (m.application && m.application.toLowerCase().includes(searchInput.value.toLowerCase()))) && 
+                    ((m.conditions || '').toLowerCase().includes(condSearchInput.value.toLowerCase())) &&
+                    (categoryFilter.value === 'all' || m.category === categoryFilter.value)
+                ).length;
+                const updatedTotalPages = Math.ceil(totalFiltered / itemsPerPage) || 1;
+                if (window.currentPage > updatedTotalPages) {
+                    window.currentPage = updatedTotalPages;
+                }
                 renderTable();
                 document.getElementById('deleteConfirmModal').classList.add('hidden');
                 showToast("Entry deleted", "success");
@@ -474,9 +559,14 @@
             reader.readAsText(file);
         };
 
-        searchInput.oninput = renderTable;
-        condSearchInput.oninput = renderTable;
-        categoryFilter.onchange = renderTable;
+        const handleFilterChange = () => {
+            window.currentPage = 1;
+            renderTable();
+        };
+
+        searchInput.oninput = handleFilterChange;
+        condSearchInput.oninput = handleFilterChange;
+        categoryFilter.onchange = handleFilterChange;
 
         memoPdfInput.onchange = (e) => {
             const file = e.target.files[0];
