@@ -46,19 +46,35 @@
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full flex flex-col gap-6">
         
-        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 items-center bg-white p-4 border border-slate-200 rounded-xl shadow-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-5 gap-4 items-center bg-white p-4 border border-slate-200 rounded-xl shadow-sm">
             <div class="sm:col-span-2 relative">
                 <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
                     <i class="fa-solid fa-magnifying-glass text-sm"></i>
                 </span>
-                <input type="text" id="searchInput" placeholder="Search reference, date, topic, or application..." class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/50">
+                <input type="text" 
+                       id="searchInput" 
+                       placeholder="Search reference or topic..." 
+                       class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/50">
+            </div>
+
+            <div class="relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <i class="fa-solid fa-calendar-days text-sm"></i>
+                    </span>
+            <input type="text"
+                    id="dateSearchInput"
+                    placeholder="Search date..."
+                    class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/50">
             </div>
             
             <div class="relative">
                 <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
                     <i class="fa-solid fa-filter text-sm"></i>
                 </span>
-                <input type="text" id="condSearchInput" placeholder="Search conditions..." class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/50">
+                <input type="text" 
+                        id="condSearchInput" 
+                        placeholder="Search conditions..." 
+                        class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/50">
             </div>
             
             <div>
@@ -243,6 +259,7 @@
         const memoCount = document.getElementById('memoCount');
         const searchInput = document.getElementById('searchInput');
         const condSearchInput = document.getElementById('condSearchInput');
+        const dateSearchInput = document.getElementById('dateSearchInput');
         const categoryFilter = document.getElementById('categoryFilter');
         const memoModal = document.getElementById('memoModal');
         const catModal = document.getElementById('catModal');
@@ -460,18 +477,21 @@
 
         function renderTable() {
             const term = searchInput.value.toLowerCase();
+            const dateTerm = dateSearchInput.value.toLowerCase();
             const condTerm = condSearchInput.value.toLowerCase();
             const cat = categoryFilter.value;
             
-            const filtered = memos.filter(m => 
-                ((m.ref && m.ref.toLowerCase().includes(term)) || 
-                 (m.date && m.date.toLowerCase().includes(term)) ||
-                 (m.topic && m.topic.toLowerCase().includes(term)) || 
-                 (m.application && m.application.toLowerCase().includes(term))) && 
-                ((m.conditions || '').toLowerCase().includes(condTerm)) &&
+        const filtered = memos.filter(m =>
+                (
+                    (m.ref && m.ref.toLowerCase().includes(term)) ||
+                    (m.topic && m.topic.toLowerCase().includes(term)) ||
+                    (m.application && m.application.toLowerCase().includes(term))
+                ) &&
+                (m.date || '').toLowerCase().includes(dateTerm) &&
+                (m.conditions || '').toLowerCase().includes(condTerm) &&
                 (cat === 'all' || m.category === cat)
-            );
-            
+      );
+           
             const totalItems = filtered.length;
             totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
             
@@ -1126,6 +1146,7 @@
         };
 
         searchInput.oninput = handleFilterChange;
+        dateSearchInput.oninput = handleFilterChange;
         condSearchInput.oninput = handleFilterChange;
         categoryFilter.onchange = handleFilterChange;
 
