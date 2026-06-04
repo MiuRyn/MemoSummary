@@ -3,7 +3,20 @@ export function filterMemos(memos, filters) {
     const dateTerm = (filters.dateTerm || "").toLowerCase();
     const condTerm = (filters.condTerm || "").toLowerCase();
     const category = filters.category || "all";
+    
+export function sortMemosByDate(memos, direction) {
+    if (!direction) return memos;
 
+    return [...memos].sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+
+        return direction === "asc"
+            ? dateA - dateB
+            : dateB - dateA;
+        });
+    }
+    
     return memos.filter((memo) => {
         const ref = (memo.ref || "").toLowerCase();
         const topic = (memo.topic || "").toLowerCase();
