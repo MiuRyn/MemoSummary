@@ -21,22 +21,15 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
                 <h1 class="text-xl font-bold text-slate-900 tracking-tight">Government Memo Directory (BETA)</h1>
-                <p class="text-xs text-slate-500 mt-0.5">Reference documents and application rules for government memos</p>
+                <p class="text-xs text-slate-500 mt-0.5">Search, add, edit, and manage government memo records</p>
             </div>
             <div class="flex gap-2 w-full sm:w-auto">
-                <input type="file" id="importInput" class="hidden" accept=".json">
-                <button id="importBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-file-import"></i> Import
-                </button>
-                <button id="importDevbBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-blue-200 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-50 transition flex items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-cloud-arrow-down"></i> Import DEVB
-                </button>
                 <button id="manageCatsBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-tags"></i> Categories
                 </button>
-                <button id="exportBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-download"></i> Export
-                </button>
+                <a href="admin.html" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-shield-halved"></i> Admin
+                </a>
                 <button id="addMemoBtn" class="flex-1 sm:flex-initial px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-plus"></i> Add Memo
                 </button>
@@ -608,7 +601,8 @@
             `).join('');
         }
 
-        document.getElementById('addCatBtn').onclick = () => {
+        const addCatButton = document.getElementById('addCatBtn');
+        if (addCatButton) addCatButton.onclick = () => {
             const val = document.getElementById('newCatInput').value.trim();
             if (val && !categories.includes(val)) {
                 categories.push(val);
@@ -652,7 +646,8 @@
 
         const saveCats = () => localStorage.setItem('tender_categories', JSON.stringify(categories));
 
-        document.getElementById('addMemoBtn').onclick = () => {
+        const addMemoButton = document.getElementById('addMemoBtn');
+        if (addMemoButton) addMemoButton.onclick = () => {
             memoModal.classList.remove('hidden');
             document.getElementById('modalTitle').textContent = "New Memo Entry";
             document.getElementById('memoForm').reset();
@@ -667,8 +662,10 @@
             setTimeout(() => memoModal.classList.add('hidden'), 300);
         };
 
-        document.getElementById('closeModalBtn').onclick = closeM;
-        document.getElementById('cancelFormBtn').onclick = closeM;
+        const closeModalButton = document.getElementById('closeModalBtn');
+        if (closeModalButton) closeModalButton.onclick = closeM;
+        const cancelFormButton = document.getElementById('cancelFormBtn');
+        if (cancelFormButton) cancelFormButton.onclick = closeM;
 
         saveFormBtn.onclick = async () => {
             const id = document.getElementById('memoId').value;
@@ -769,8 +766,10 @@
 
         document.getElementById('cancelDeleteBtn').onclick = () => document.getElementById('deleteConfirmModal').classList.add('hidden');
 
-        document.getElementById('manageCatsBtn').onclick = () => catModal.classList.remove('hidden');
-        document.getElementById('closeCatModalBtn').onclick = () => catModal.classList.add('hidden');
+        const manageCatsButton = document.getElementById('manageCatsBtn');
+        if (manageCatsButton) manageCatsButton.onclick = () => catModal.classList.remove('hidden');
+        const closeCatModalButton = document.getElementById('closeCatModalBtn');
+        if (closeCatModalButton) closeCatModalButton.onclick = () => catModal.classList.add('hidden');
 
 
         const DEVB_BASE_URL = "https://www.devb.gov.hk";
@@ -1106,19 +1105,25 @@
             }
         }
 
-        document.getElementById("importDevbBtn").onclick = importDEVBMemos;
+        const importDevbButton = document.getElementById("importDevbBtn");
+        if (importDevbButton) importDevbButton.onclick = importDEVBMemos;
 
-        document.getElementById('exportBtn').onclick = () => {
-            const blob = new Blob([JSON.stringify(memos, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'tender_memos.json';
-            a.click();
-        };
+        const exportButton = document.getElementById('exportBtn');
+        if (exportButton) {
+            exportButton.onclick = () => {
+                const blob = new Blob([JSON.stringify(memos, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'tender_memos.json';
+                a.click();
+            };
+        }
 
-        document.getElementById('importBtn').onclick = () => importInput.click();
-        importInput.onchange = async (e) => {
+        const importButton = document.getElementById('importBtn');
+        if (importButton && importInput) {
+            importButton.onclick = () => importInput.click();
+            importInput.onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
             const reader = new FileReader();
@@ -1138,7 +1143,8 @@
                 }
             };
             reader.readAsText(file);
-        };
+            };
+        }
 
         const handleFilterChange = () => {
             window.currentPage = 1;
