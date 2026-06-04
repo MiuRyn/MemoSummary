@@ -215,10 +215,16 @@ function arrayBufferToBase64(buffer) {
 }
 
 function extractGeminiText(data) {
-  // 確保取得完整的 candidates[0].content.parts
   const parts = data?.candidates?.[0]?.content?.parts || [];
-  return parts.map(p => p.text).join("").trim();
+  // 核心修改：使用正則表達式過濾掉括號中的數字或結構標記
+  return parts
+    .map(p => p.text)
+    .join("")
+    .replace(/\s*\(\d+\)\s*/g, " ") // 移除類似 "(7)" 的結構標記
+    .replace(/\s+/g, " ")           // 壓縮空格
+    .trim();
 }
+
 
 function forceTwoSentenceLimit(text) {
     const clean = cleanText(text);
