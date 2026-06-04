@@ -146,7 +146,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Document Link (URL)</label>
-                        <input type="url" id="memoLink" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="https://...">
+                        <input type="text" id="memoLink" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="https://... or file://...">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Upload Local PDF</label>
@@ -220,6 +220,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
         import { getFirestore, collection, getDocs, setDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+        import { isLocalFileLink, localFileLinkToCopyPath, copyTextToClipboard } from "./local-file-links.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCtQbVm91_lsmzz2XcX60bhUCYH0CjRb_E",
@@ -467,6 +468,38 @@
                 day: "numeric"
             });
         }
+        window.copyMemoLocalPath = async (id) => {
+            const memo = memos.find(item => item.id === id);
+            if (!memo || !memo.url) {
+                showToast("No local file path found", "error");
+                return;
+            }
+
+            const pathToCopy = localFileLinkToCopyPath(memo.url);
+
+            try {
+                const copied = await copyTextToClipboard(pathToCopy);
+                if (copied) {
+                    showToast("Local file path copied. Paste it into Chrome address bar or File Explorer.");
+                } else {
+                    showToast("Copy failed. Please copy the path manually.", "error");
+                    window.prompt("Copy this local file path:", pathToCopy);
+                }
+            } catch {
+                showToast("Copy failed. Please copy the path manually.", "error");
+                window.prompt("Copy this local file path:", pathToCopy);
+            }
+        };
+
+        function renderMemoLinkAction(memo) {
+            if (!memo || !memo.url) return "";
+
+            if (isLocalFileLink(memo.url)) {
+                return `<button onclick="copyMemoLocalPath('${memo.id}')" class="p-1.5 text-slate-400 hover:text-emerald-600 transition" title="Copy Local File Path"><i class="fa-solid fa-copy"></i></button>`;
+            }
+
+            return `<a href="${memo.url}" target="_blank" rel="noopener noreferrer" class="p-1.5 text-slate-400 hover:text-indigo-600 transition" title="Open Link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`;
+        }
 
         function renderTable() {
             const term = searchInput.value.toLowerCase();
@@ -511,7 +544,7 @@
                     <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs border bg-white border-slate-200 text-slate-700">${m.category || ''}</span></td>
                     <td class="py-3 px-4 text-right whitespace-nowrap">
                         <div class="flex justify-end gap-1">
-                            ${m.url ? `<a href="${m.url}" target="_blank" class="p-1.5 text-slate-400 hover:text-indigo-600 transition" title="Open Link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : ''}
+                            ${renderMemoLinkAction(m)}
                             ${m.pdfData ? `<button onclick="openPdf('${m.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="Open PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
                             <button onclick="editMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-blue-600 transition"><i class="fa-solid fa-pen"></i></button>
                             <button onclick="deleteMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-red-600 transition"><i class="fa-solid fa-trash"></i></button>
