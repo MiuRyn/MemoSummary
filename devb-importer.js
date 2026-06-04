@@ -1,195 +1,297 @@
-import {
-    collection,
-    getDocs,
-    setDoc,
-    deleteDoc,
-    doc
-} from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
-
 import { cleanText } from "./utils.js";
 
-const URL_MEMO_CHUNK_COLLECTION = "appData";
-const URL_MEMO_CHUNK_PREFIX = "memoChunk_";
-const URL_MEMO_CHUNK_SIZE = 100;
+const DEVB_BASE_URL = "https://www.devb.gov.hk";
+const DEVB_DATA_JS_URL = "https://www.devb.gov.hk/filemanager/technicalcirculars/list_technicalcirculars_53.js";
+const DEVB_DATA_PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(DEVB_DATA_JS_URL)}`;
 
-export function getUrlMemoKey(memo) {
-    return cleanText((memo && memo.url) || (memo && memo.ref) || (memo && memo.id) || "");
+function absoluteDEVBUrl(path) {
+    if (!path) return "";
+    return new URL(path, DEVB_BASE_URL).href;
 }
 
-export function dedupeMemosByUrlRefId(records) {
-    const map = new Map();
-
-    records.forEach((record) => {
-        const key = getUrlMemoKey(record);
-
-        if (!key) return;
-
-        const existing = map.get(key);
-
-        map.set(key, {
-            ...(existing || {}),
-            ...record,
-            id: (existing && existing.id) || record.id
-        });
-    });
-
-    return Array.from(map.values());
+function createStableDEVBId(circularNumber, url) {
+    const key = `${circularNumber || ""}-${url || ""}`;
+    return `devb-${btoa(unescape(encodeURIComponent(key))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 36)}`;
 }
 
-export async function loadUrlMemoChunks(db) {
-    const querySnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
-    const chunkDocs = [];
+function normalizeDEVBDate(issueDate) {
+    const raw = cleanText(issueDate || "");
+    const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
 
-    querySnapshot.forEach((snapshot) => {
-        if (!snapshot.id.startsWith(URL_MEMO_CHUNK_PREFIX)) return;
+    if (!match) return raw;
 
-        const data = snapshot.data();
+    const day = match[1].padStart(2, "0");
+    const month = match[2].padStart(2, "0");
+    const year = match[3];
 
-        if (!Array.isArray(data.memos)) return;
+    return `${year}-${month}-${day}`;
+}
 
-        chunkDocs.push({
-            id: snapshot.id,
-            memos: data.memos
-        });
-    });
-
-    chunkDocs.sort((a, b) => a.id.localeCompare(b.id));
-
-    return dedupeMemosByUrlRefId(
-        chunkDocs.flatMap(chunk => chunk.memos)
+export function isImportableDEVBRecord(item) {
+    return Boolean(
+        item &&
+        typeof item === "object" &&
+        !Array.isArray(item) &&
+        cleanText(item.CircularNumber || "") &&
+        cleanText(item.Title || "") &&
+        Array.isArray(item.Files) &&
+        item.Files.some(filePath => cleanText(filePath || ""))
     );
 }
 
-export async function overwriteUrlMemoChunks(db, urlMemos) {
-    const cleanUrlMemos = dedupeMemosByUrlRefId(
-        urlMemos
-            .filter(memo => memo && cleanText(memo.url || ""))
-            .map(memo => ({
-                ...memo,
-                pdfData: memo.pdfData || ""
-            }))
-    ).sort((a, b) => cleanText(a.ref || "").localeCompare(cleanText(b.ref || "")));
+export function normalizeDEVBItem(item) {
+    const pdfPath = Array.isArray(item.Files) && item.Files.length > 0 ? item.Files[0] : "";
+    const circularNumber = cleanText(item.CircularNumber || "");
+    const title = cleanText(item.Title || "");
+    const issueDate = cleanText(item.IssueDate || "");
+    const url = absoluteDEVBUrl(pdfPath);
 
-    const existingSnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
-    const deletes = [];
+    return {
+        id: createStableDEVBId(circularNumber, url),
+        ref: circularNumber ? `TC(W) No. ${circularNumber}` : "",
+        date: normalizeDEVBDate(issueDate),
+        topic: title,
+        url,
+        category: "Technical Specifications",
+        conditions: "",
+        application: "",
+        pdfData: "",
+        source: "DEVB Works Technical Circulars"
+    };
+}
 
-    existingSnapshot.forEach((snapshot) => {
-        if (snapshot.id.startsWith(URL_MEMO_CHUNK_PREFIX)) {
-            deletes.push(deleteDoc(doc(db, URL_MEMO_CHUNK_COLLECTION, snapshot.id)));
+function getCircularRecordKey(item) {
+    const circularNumber = cleanText(item && item.CircularNumber || "");
+    const title = cleanText(item && item.Title || "");
+    const files = Array.isArray(item && item.Files)
+        ? item.Files.map(filePath => cleanText(filePath || "")).join("|")
+        : "";
+
+    return `${circularNumber}::${title}::${files}`;
+}
+
+function collectCircularRecords(value, output = [], visited = new Set(), depth = 0) {
+    if (!value || depth > 8) return output;
+
+    const valueType = typeof value;
+
+    if (valueType !== "object" && valueType !== "function") return output;
+    if (visited.has(value)) return output;
+
+    visited.add(value);
+
+    if (isImportableDEVBRecord(value)) {
+        output.push(value);
+        return output;
+    }
+
+    if (Array.isArray(value)) {
+        for (const entry of value) {
+            collectCircularRecords(entry, output, visited, depth + 1);
         }
+
+        return output;
+    }
+
+    for (const key of Object.keys(value)) {
+        try {
+            collectCircularRecords(value[key], output, visited, depth + 1);
+        } catch {
+            continue;
+        }
+    }
+
+    return output;
+}
+
+function dedupeCircularRecords(records) {
+    const seen = new Set();
+    const unique = [];
+
+    for (const record of records) {
+        const key = getCircularRecordKey(record);
+
+        if (!key || seen.has(key)) continue;
+
+        seen.add(key);
+        unique.push(record);
+    }
+
+    return unique;
+}
+
+async function loadDEVBItemsViaScriptTag() {
+    const beforeKeys = new Set(Object.keys(window));
+
+    await new Promise((resolve, reject) => {
+        const existingScript = document.querySelector('script[data-devb-importer="true"]');
+
+        if (existingScript) existingScript.remove();
+
+        const script = document.createElement("script");
+        script.src = `${DEVB_DATA_JS_URL}?cacheBust=${Date.now()}`;
+        script.async = true;
+        script.dataset.devbImporter = "true";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Could not load DEVB data script tag."));
+        document.head.appendChild(script);
     });
 
-    await Promise.all(deletes);
+    const allRecords = [];
+    const candidateKeys = Object.keys(window).filter(key => !beforeKeys.has(key));
 
-    const writes = [];
-
-    for (let i = 0; i < cleanUrlMemos.length; i += URL_MEMO_CHUNK_SIZE) {
-        const chunkNumber = String(Math.floor(i / URL_MEMO_CHUNK_SIZE) + 1).padStart(3, "0");
-        const chunk = cleanUrlMemos.slice(i, i + URL_MEMO_CHUNK_SIZE);
-
-        writes.push(setDoc(doc(db, URL_MEMO_CHUNK_COLLECTION, `${URL_MEMO_CHUNK_PREFIX}${chunkNumber}`), {
-            updatedAt: new Date().toISOString(),
-            count: chunk.length,
-            memos: chunk
-        }));
+    for (const key of candidateKeys) {
+        try {
+            collectCircularRecords(window[key], allRecords);
+        } catch {
+            continue;
+        }
     }
 
-    await Promise.all(writes);
-}
-
-export async function upsertUrlMemoToChunks(db, memo) {
-    const urlMemos = await loadUrlMemoChunks(db);
-    const key = getUrlMemoKey(memo);
-    const existingIndex = urlMemos.findIndex(item => getUrlMemoKey(item) === key);
-
-    if (existingIndex >= 0) {
-        urlMemos[existingIndex] = {
-            ...urlMemos[existingIndex],
-            ...memo,
-            id: urlMemos[existingIndex].id || memo.id
-        };
-    } else {
-        urlMemos.push(memo);
-    }
-
-    await overwriteUrlMemoChunks(db, urlMemos);
-}
-
-export async function removeUrlMemoFromChunks(db, memo) {
-    const key = getUrlMemoKey(memo);
-    const urlMemos = await loadUrlMemoChunks(db);
-
-    await overwriteUrlMemoChunks(
-        db,
-        urlMemos.filter(item => getUrlMemoKey(item) !== key)
-    );
-}
-
-export async function saveMemoRecord(db, data) {
-    if (cleanText(data.url || "")) {
-        await upsertUrlMemoToChunks(db, data);
+    for (const key of Object.keys(window)) {
+        if (!/circular|technical|tcw|list|data/i.test(key)) continue;
 
         try {
-            await deleteDoc(doc(db, "memos", data.id));
+            collectCircularRecords(window[key], allRecords);
         } catch {
-            // It may not exist as an individual document.
+            continue;
         }
-
-        return;
     }
 
-    await setDoc(doc(db, "memos", data.id), data);
+    const uniqueRecords = dedupeCircularRecords(allRecords);
+
+    if (!uniqueRecords.length) {
+        throw new Error("DEVB script loaded, but no CircularNumber records were exposed on window.");
+    }
+
+    console.info(`DEVB script import found ${uniqueRecords.length} circular records.`);
+    return uniqueRecords;
 }
 
-export async function deleteMemoRecord(db, memo) {
-    if (memo && cleanText(memo.url || "")) {
-        await removeUrlMemoFromChunks(db, memo);
+async function fetchDEVBDataJsText() {
+    const urls = [DEVB_DATA_JS_URL, DEVB_DATA_PROXY_URL];
+    let lastError = null;
+
+    for (const url of urls) {
+        try {
+            const response = await fetch(url, { cache: "no-store" });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const text = await response.text();
+
+            if (text && text.includes("CircularNumber")) return text;
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError || new Error("Unable to fetch DEVB circular data.");
+}
+
+function findMatchingSquareBracket(text, openIndex) {
+    let depth = 0;
+    let inString = false;
+    let stringQuote = "";
+    let escaped = false;
+
+    for (let i = openIndex; i < text.length; i++) {
+        const ch = text[i];
+
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (ch === "\\") {
+                escaped = true;
+            } else if (ch === stringQuote) {
+                inString = false;
+                stringQuote = "";
+            }
+
+            continue;
+        }
+
+        if (ch === '"' || ch === "'") {
+            inString = true;
+            stringQuote = ch;
+            continue;
+        }
+
+        if (ch === "[") depth++;
+        if (ch === "]") depth--;
+
+        if (depth === 0) return i;
+    }
+
+    return -1;
+}
+
+function parseDEVBDataJsText(jsText) {
+    if (!jsText.includes("CircularNumber")) {
+        throw new Error("The DEVB JS file was fetched, but no CircularNumber records were found.");
+    }
+
+    const assignmentMatches = Array.from(jsText.matchAll(/(?:var|let|const)?\s*([A-Za-z_$][\w$]*)\s*=\s*\[/g));
+    const allRecords = [];
+
+    for (const match of assignmentMatches) {
+        const firstBracket = jsText.indexOf("[", match.index);
+        const lastBracket = findMatchingSquareBracket(jsText, firstBracket);
+
+        if (firstBracket === -1 || lastBracket === -1 || lastBracket <= firstBracket) continue;
+
+        const arrayText = jsText.slice(firstBracket, lastBracket + 1);
 
         try {
-            await deleteDoc(doc(db, "memos", memo.id));
+            const parsed = JSON.parse(arrayText);
+            collectCircularRecords(parsed, allRecords);
         } catch {
-            // It may not exist as an individual document.
+            try {
+                const parsed = Function(`"use strict"; return (${arrayText});`)();
+                collectCircularRecords(parsed, allRecords);
+            } catch {
+                continue;
+            }
         }
-
-        return;
     }
 
-    await deleteDoc(doc(db, "memos", memo.id));
+    if (!allRecords.length) {
+        const circularRegex = /\{[\s\S]*?"CircularNumber"\s*:\s*"[\s\S]*?\}/g;
+        const objectMatches = jsText.match(circularRegex) || [];
+
+        for (const objectText of objectMatches) {
+            try {
+                const parsed = JSON.parse(objectText);
+
+                if (isImportableDEVBRecord(parsed)) allRecords.push(parsed);
+            } catch {
+                try {
+                    const parsed = Function(`"use strict"; return (${objectText});`)();
+
+                    if (isImportableDEVBRecord(parsed)) allRecords.push(parsed);
+                } catch {
+                    continue;
+                }
+            }
+        }
+    }
+
+    const uniqueRecords = dedupeCircularRecords(allRecords);
+
+    if (!uniqueRecords.length) {
+        throw new Error("Could not parse any circular records from list_technicalcirculars_53.js.");
+    }
+
+    console.info(`DEVB fetch fallback parsed ${uniqueRecords.length} circular records.`);
+    return uniqueRecords;
 }
 
-export async function cleanupIndividualUrlDocuments(db, urlMemos) {
-    const keys = new Set(urlMemos.map(getUrlMemoKey).filter(Boolean));
-    const querySnapshot = await getDocs(collection(db, "memos"));
-    const deletes = [];
-
-    querySnapshot.forEach((snapshot) => {
-        const data = snapshot.data();
-        const key = getUrlMemoKey(data);
-
-        if (key && keys.has(key)) {
-            deletes.push(deleteDoc(doc(db, "memos", snapshot.id)));
-        }
-    });
-
-    await Promise.all(deletes);
-    return deletes.length;
-}
-
-export async function loadAllMemos(db) {
-    const [urlMemos, querySnapshot] = await Promise.all([
-        loadUrlMemoChunks(db),
-        getDocs(collection(db, "memos"))
-    ]);
-
-    const individualMemos = [];
-
-    querySnapshot.forEach((snapshot) => {
-        const data = snapshot.data();
-
-        if (!cleanText(data.url || "")) {
-            individualMemos.push(data);
-        }
-    });
-
-    return dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
+export async function loadDEVBItems() {
+    try {
+        return await loadDEVBItemsViaScriptTag();
+    } catch (scriptError) {
+        console.warn("DEVB script-tag import failed. Trying fetch fallback.", scriptError);
+        const jsText = await fetchDEVBDataJsText();
+        return parseDEVBDataJsText(jsText);
+    }
 }
