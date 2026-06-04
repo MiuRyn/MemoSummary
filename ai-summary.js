@@ -48,7 +48,7 @@ export async function generateMemoSummaryWithGemini(memoInput) {
                 ],
                 generationConfig: {
                     temperature: 0.1,
-                    maxOutputTokens: 600
+                    maxOutputTokens: 1000
                 }
             })
         }
@@ -100,20 +100,12 @@ async function buildGeminiParts(memoInput) {
     } = memoInput || {};
 
 const prompt = `
-You are extracting concise searchable key phrases from a government technical circular.
-
-Read the attached PDF/document content and output ONLY the most important 2 to 4 key phrases.
-
-Rules:
-1. Do not write sentences.
-2. Do not explain.
-3. Separate each item with a semicolon and one space.
-4. Prefer the main subject, threshold amounts, effective dates, contract types, or mandatory requirements.
-5. Use exact wording from the document where possible.
-6. Output format example:
-Artificial Intelligence (AI) Technology; $15 million; $30 million
-
-Output only the key phrases.
+Extract 3 to 5 important key phrases from the document.
+Format requirements:
+- Separate each phrase with a semicolon (;).
+- Do not use sentences.
+- Do not truncate phrases.
+- If a phrase is long, keep it complete.
 `;
     
     const parts = [{ text: prompt }];
@@ -222,11 +214,14 @@ function arrayBufferToBase64(buffer) {
 
 function extractGeminiText(data) {
   const parts = data?.candidates?.[0]?.content?.parts || [];
-  const text = parts.map(p => p.text).join(" ").trim();
-  // 移除所有非關鍵字相關的亂碼或括號標記
-  return text.replace(/\s*\(\d+\)\s*/g, "").replace(/\n/g, " ").trim();
+  // 僅加入基本清理，移除換行符與多餘空格，不移除括號數字，避免誤刪
+  return parts
+    .map(p => p.text)
+    .join(" ")
+    .replace(/\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
-
 
 function forceTwoSentenceLimit(text) {
     const clean = cleanText(text);
@@ -278,7 +273,7 @@ Do not answer with fewer than 40 total words.
                 ],
                 generationConfig: {
                     temperature: 0.1,
-                    maxOutputTokens: 600
+                    maxOutputTokens: 1000
                 }
             })
         }
