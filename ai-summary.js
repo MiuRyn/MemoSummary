@@ -47,7 +47,7 @@ export async function generateMemoSummaryWithGemini(memoInput) {
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.4,
+                    temperature: 0.7,
                     maxOutputTokens: 800
                 }
             })
@@ -97,12 +97,12 @@ async function buildGeminiParts(memoInput) {
     } = memoInput || {};
 
 const prompt = `
-You are summarising a government memo for an engineering memo directory.
-
-IMPORTANT:
-Base the summary primarily on the CONTENT OF THE ATTACHED PDF OR DOCUMENT.
-Do NOT generate the summary from the memo reference, date, title, topic, or conditions alone if document content is available.
-
+You are summarising a government memo. 
+IMPORTANT: Only use the provided excerpt from the beginning of the document to generate the summary.
+Crucial: Ensure the output does not end mid-sentence. 
+The summary must contain at least 40 words and end with a proper punctuation mark (period). 
+If the summary is cut off, it is considered a critical error.
+Write exactly TWO complete sentences based on this information.
 Write exactly TWO complete sentences.
 
 Requirements:
@@ -190,7 +190,7 @@ async function tryFetchUrlAsGeminiPart(url) {
         if (/text\/|json|xml|html/i.test(contentType)) {
             const text = await response.text();
             return {
-                text: `Fetched document text:\n${htmlToReadableText(text).slice(0, 25000)}`
+                text: `Fetched document text:\n${htmlToReadableText(text).slice(0, 2500)}`
             };
         }
 
@@ -227,12 +227,9 @@ function arrayBufferToBase64(buffer) {
 }
 
 function extractGeminiText(data) {
-    return (
-        data?.candidates?.[0]?.content?.parts
-            ?.map((part) => part.text || "")
-            .join(" ")
-            .trim() || ""
-    );
+  // 確保取得完整的 candidates[0].content.parts
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts.map(p => p.text).join("").trim();
 }
 
 function forceTwoSentenceLimit(text) {
@@ -284,7 +281,7 @@ Do not answer with fewer than 40 total words.
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.6,
+                    temperature: 0.7,
                     maxOutputTokens: 800
                 }
             })
