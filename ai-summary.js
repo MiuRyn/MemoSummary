@@ -66,7 +66,10 @@ export async function generateMemoSummaryWithGemini(memoInput) {
         throw new Error("Gemini returned no summary text.");
     }
 
-    return await ensureTwoSentenceSummary(summary, parts, apiKey, model);
+    return cleanText(summary)
+    .replace(/\n/g, " ")
+    .replace(/\s*;\s*/g, "; ")
+    .replace(/\.$/, "");
 }
 
 function getOrPromptForGeminiApiKey() {
@@ -97,20 +100,20 @@ async function buildGeminiParts(memoInput) {
     } = memoInput || {};
 
 const prompt = `
-You are summarising a government technical circular for an engineering memo directory.
+You are extracting concise searchable key phrases from a government technical circular.
 
-Read the attached PDF/document content and write exactly TWO concise sentences.
+Read the attached PDF/document content and output ONLY the most important 2 to 4 key phrases.
 
 Rules:
-1. Each sentence must be short, clear, and specific.
-2. Total output must be 35 to 55 words only.
-3. Do not use bullet points.
-4. Do not add a heading.
-5. Do not use vague phrases like "strict regulatory standards" unless the document says that.
-6. Focus on what the circular changes, requires, or instructs.
-7. If the document is about a tender, contract, procedure, form, fee, approval, safety, or technical requirement, say that directly.
+1. Do not write sentences.
+2. Do not explain.
+3. Separate each item with a semicolon and one space.
+4. Prefer the main subject, threshold amounts, effective dates, contract types, or mandatory requirements.
+5. Use exact wording from the document where possible.
+6. Output format example:
+Artificial Intelligence (AI) Technology; $15 million; $30 million
 
-Output only the two-sentence summary.
+Output only the key phrases.
 `;
     
     const parts = [{ text: prompt }];
