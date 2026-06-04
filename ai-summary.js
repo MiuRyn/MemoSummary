@@ -47,7 +47,7 @@ export async function generateMemoSummaryWithGemini(memoInput) {
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.7,
+                    temperature: 0.5,
                     maxOutputTokens: 800
                 }
             })
@@ -97,31 +97,19 @@ async function buildGeminiParts(memoInput) {
     } = memoInput || {};
 
 const prompt = `
-You are summarising a government memo. 
-IMPORTANT: Only use the provided excerpt from the beginning of the document to generate the summary.
-Crucial: Ensure the output does not end mid-sentence. 
-The summary must contain at least 40 words and end with a proper punctuation mark (period). 
-If the summary is cut off, it is considered a critical error.
-Write exactly TWO complete sentences based on this information.
-Write exactly TWO complete sentences.
+You are a professional assistant summarizing government memos.
+Task: Write exactly TWO complete, grammatically correct sentences.
+Constraint:
+1. Do not exceed two sentences.
+2. The summary MUST NOT be truncated; ensure each sentence ends with a period.
+3. Total word count must be between 40 and 60 words.
+4. Focus strictly on the purpose and procedures described.
+5. Do not include introductory phrases or headers.
 
-Requirements:
-- Each sentence should be approximately 20 to 40 words.
-- Do not use bullet points.
-- Do not use headings.
-- Do not repeat the memo title.
-- Focus on the purpose, requirements, guidance, obligations, procedures, or actions described in the document.
-- Write in professional business English.
-
-Use the following metadata only if the PDF/document content cannot be read:
-
-Memo Reference: ${ref}
-Memo Date: ${date}
-Memo Topic: ${topic}
-Memo Conditions: ${conditions}
-Existing Application Notes: ${application}
+Input Content:
+(Use the provided document content or metadata to generate the summary.)
 `;
-
+    
     const parts = [{ text: prompt }];
     console.log("Gemini prompt created");
     console.log("PDF attached:", !!pdfData);
@@ -281,7 +269,7 @@ Do not answer with fewer than 40 total words.
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.7,
+                    temperature: 0.5,
                     maxOutputTokens: 800
                 }
             })
@@ -301,6 +289,14 @@ Do not answer with fewer than 40 total words.
     }
 
     return forceTwoSentenceLimit(retrySummary);
+}
+// 在返回結果前增加一個截斷修正
+function sanitizeOutput(text) {
+  // 如果最後一個句子沒有標點符號，自動加上
+  if (text.length > 0 && !/[.!?]$/.test(text)) {
+    return text.substring(0, text.lastIndexOf(' ')) + ".";
+  }
+  return text;
 }
 
 function formatGeminiError(status, data) {
