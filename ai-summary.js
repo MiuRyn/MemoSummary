@@ -96,21 +96,23 @@ async function buildGeminiParts(memoInput) {
         pdfData = ""
     } = memoInput || {};
 
-    const prompt = [
-        "You are an engineering document assistant.",
-        "Generate exactly two concise sentences summarising the memo.",
-        "Focus on the memo purpose, main requirement, and practical application.",
-        "Do not invent facts that are not supported by the provided content.",
-        "",
-        `Memo Reference: ${ref}`,
-        `Date: ${date}`,
-        `Topic / Scope: ${topic}`,
-        `Conditions: ${conditions}`,
-        `Existing Description: ${application}`,
-        `Document URL: ${url}`,
-        "",
-        "Return only the two-sentence summary."
-    ].join("\n");
+const prompt = `
+You are summarising a government memo for an engineering memo directory.
+
+Write exactly two complete sentences.
+Each sentence must be 20 to 35 words.
+Do not use bullet points.
+Do not write a title.
+Do not write fewer than two sentences.
+
+Memo reference: ${memo.ref || ""}
+Memo date: ${memo.date || ""}
+Memo topic: ${memo.topic || ""}
+Memo conditions: ${memo.conditions || ""}
+
+Memo content:
+${sourceText}
+`;
 
     const parts = [{ text: prompt }];
 
