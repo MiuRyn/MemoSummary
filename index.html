@@ -1118,6 +1118,56 @@
             }
         }
 
+
+        function normalizeMemoRefForDuplicateCheck(value) {
+            return cleanText(value || "")
+                .toUpperCase()
+                .replace(/^TC\s*\(?W\)?\s*NO\.?\s*/i, "")
+                .replace(/^TCW\s*NO\.?\s*/i, "")
+                .replace(/\s+/g, "")
+                .replace(/[.]/g, "");
+        }
+
+        function normalizeMemoDateForDuplicateCheck(value) {
+            const raw = cleanText(value || "");
+
+            if (!raw) return "";
+
+            const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+            if (isoMatch) {
+                return `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
+            }
+
+            const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (slashMatch) {
+                const day = slashMatch[1].padStart(2, "0");
+                const month = slashMatch[2].padStart(2, "0");
+                const year = slashMatch[3];
+
+                return `${year}-${month}-${day}`;
+            }
+
+            const parsed = new Date(raw);
+            if (!Number.isNaN(parsed.getTime())) {
+                const year = parsed.getFullYear();
+                const month = String(parsed.getMonth() + 1).padStart(2, "0");
+                const day = String(parsed.getDate()).padStart(2, "0");
+
+                return `${year}-${month}-${day}`;
+            }
+
+            return raw.toUpperCase();
+        }
+
+        function getMemoRefDateDuplicateKey(memo) {
+            const normalizedRef = normalizeMemoRefForDuplicateCheck(memo && memo.ref);
+            const normalizedDate = normalizeMemoDateForDuplicateCheck(memo && memo.date);
+
+            if (!normalizedRef || !normalizedDate) return "";
+
+            return `${normalizedRef}::${normalizedDate}`;
+        }
+
         async function importDEVBMemos() {
             const importDevbBtn = document.getElementById("importDevbBtn");
             const originalText = importDevbBtn ? importDevbBtn.innerHTML : "";
@@ -1138,7 +1188,7 @@
 
                 const circularRecords = rawItems.filter(isImportableDEVBRecord);
 
-                let importedMemos = circularRecords
+                const importedMemos = circularRecords
                     .map(normalizeDEVBItem)
                     .filter(item => item.ref && item.topic && item.url);
 
@@ -1147,18 +1197,39 @@
                     throw new Error(`No valid DEVB circulars parsed. Found ${rawItems.length} raw items. Check Console for first sample.`);
                 }
 
-                const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
-                const newCount = importedMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
-                const updatedCount = importedMemos.length - newCount;
+                const existingRefDateKeys = new Set(
+                    memos
+                        .map(getMemoRefDateDuplicateKey)
+                        .filter(Boolean)
+                );
+
+                const incomingRefDateKeys = new Set();
+                const newImportedMemos = [];
+
+                for (const importedMemo of importedMemos) {
+                    const duplicateKey = getMemoRefDateDuplicateKey(importedMemo);
+
+                    if (!duplicateKey) continue;
+                    if (existingRefDateKeys.has(duplicateKey)) continue;
+                    if (incomingRefDateKeys.has(duplicateKey)) continue;
+
+                    incomingRefDateKeys.add(duplicateKey);
+                    newImportedMemos.push(importedMemo);
+                }
+
+                if (!newImportedMemos.length) {
+                    await loadMemos();
+                    showToast(`DEVB import complete: 0 new, ${importedMemos.length} skipped as existing ref/date matches`);
+                    return;
+                }
 
                 const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
-                const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...importedMemos]);
+                const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...newImportedMemos]);
 
                 await overwriteUrlMemoChunks(mergedUrlMemos);
-                const cleanedCount = await cleanupIndividualUrlDocuments(importedMemos);
-
                 await loadMemos();
-                showToast(`DEVB import complete: ${newCount} new, ${updatedCount} updated, ${cleanedCount} old individual docs removed`);
+
+                showToast(`DEVB import complete: ${newImportedMemos.length} new, ${importedMemos.length - newImportedMemos.length} skipped as existing ref/date matches`);
             } catch (error) {
                 console.error(error);
                 showToast(error.message || "Failed to import DEVB circulars", "error");
