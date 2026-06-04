@@ -97,17 +97,17 @@ async function buildGeminiParts(memoInput) {
     } = memoInput || {};
 
 const prompt = `
-You are a professional assistant summarizing government memos.
-Task: Write exactly TWO complete, grammatically correct sentences.
+You are a keyword extraction assistant for government memos.
+Task: Extract exactly the most important keywords or short phrases from the text.
 Constraint:
-1. Do not exceed two sentences.
-2. The summary MUST NOT be truncated; ensure each sentence ends with a period.
-3. Total word count must be between 40 and 60 words.
-4. Focus strictly on the purpose and procedures described.
-5. Do not include introductory phrases or headers.
+1. Provide the keywords separated by semicolons (;).
+2. Do not write full sentences.
+3. Keep the total number of keywords between 3 to 5 items.
+4. Only use terms present in the document.
+5. Example format: Keyword A; Keyword B; Keyword C
 
 Input Content:
-(Use the provided document content or metadata to generate the summary.)
+(Use the provided document content to extract keywords.)
 `;
     
     const parts = [{ text: prompt }];
@@ -216,13 +216,9 @@ function arrayBufferToBase64(buffer) {
 
 function extractGeminiText(data) {
   const parts = data?.candidates?.[0]?.content?.parts || [];
-  // 核心修改：使用正則表達式過濾掉括號中的數字或結構標記
-  return parts
-    .map(p => p.text)
-    .join("")
-    .replace(/\s*\(\d+\)\s*/g, " ") // 移除類似 "(7)" 的結構標記
-    .replace(/\s+/g, " ")           // 壓縮空格
-    .trim();
+  const text = parts.map(p => p.text).join(" ").trim();
+  // 移除所有非關鍵字相關的亂碼或括號標記
+  return text.replace(/\s*\(\d+\)\s*/g, "").replace(/\n/g, " ").trim();
 }
 
 
