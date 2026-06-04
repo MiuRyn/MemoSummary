@@ -48,7 +48,7 @@ export async function generateMemoSummaryWithGemini(memoInput) {
                 ],
                 generationConfig: {
                     temperature: 0.1,
-                    maxOutputTokens: 300
+                    maxOutputTokens: 600
                 }
             })
         }
@@ -278,7 +278,7 @@ Do not answer with fewer than 40 total words.
                 ],
                 generationConfig: {
                     temperature: 0.1,
-                    maxOutputTokens: 300
+                    maxOutputTokens: 600
                 }
             })
         }
