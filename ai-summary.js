@@ -1,6 +1,6 @@
 const GEMINI_API_KEY_STORAGE_KEY = "memo_directory_gemini_api_key";
 const GEMINI_MODEL_STORAGE_KEY = "memo_directory_gemini_model";
-const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 const GEMINI_GENERATE_CONTENT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
 export function getGeminiApiKey() {
