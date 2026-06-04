@@ -66,7 +66,7 @@ export async function generateMemoSummaryWithGemini(memoInput) {
         throw new Error("Gemini returned no summary text.");
     }
 
-    return forceTwoSentenceLimit(summary);
+    return await ensureTwoSentenceSummary(summary, parts, apiKey, model);
 }
 
 function getOrPromptForGeminiApiKey() {
@@ -244,6 +244,66 @@ function forceTwoSentenceLimit(text) {
     }
 
     return sentences.slice(0, 2).join(" ").trim();
+}
+
+async function ensureTwoSentenceSummary(summary, originalParts, apiKey, model) {
+    const cleanSummary = cleanText(summary);
+    const wordCount = cleanSummary.split(/\s+/).filter(Boolean).length;
+
+    if (wordCount >= 35) {
+        return forceTwoSentenceLimit(cleanSummary);
+    }
+
+    const retryPrompt = `
+Your previous answer was too short: "${cleanSummary}"
+
+Rewrite it as exactly TWO complete sentences.
+Each sentence must contain 20 to 35 words.
+Base the answer primarily on the attached PDF or document content.
+Do not use headings, bullets, or a title.
+Do not answer with fewer than 40 total words.
+`;
+
+    const retryParts = [
+        { text: retryPrompt },
+        ...originalParts.slice(1)
+    ];
+
+    const response = await fetch(
+        `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        role: "user",
+                        parts: retryParts
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.4,
+                    maxOutputTokens: 220
+                }
+            })
+        }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(formatGeminiError(response.status, data));
+    }
+
+    const retrySummary = extractGeminiText(data);
+
+    if (!retrySummary) {
+        throw new Error("Gemini returned no summary text.");
+    }
+
+    return forceTwoSentenceLimit(retrySummary);
 }
 
 function formatGeminiError(status, data) {
