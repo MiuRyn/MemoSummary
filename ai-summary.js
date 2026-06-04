@@ -99,23 +99,34 @@ async function buildGeminiParts(memoInput) {
 const prompt = `
 You are summarising a government memo for an engineering memo directory.
 
-Write exactly two complete sentences.
-Each sentence must be 20 to 35 words.
-Do not use bullet points.
-Do not write a title.
-Do not write fewer than two sentences.
+IMPORTANT:
+Base the summary primarily on the CONTENT OF THE ATTACHED PDF OR DOCUMENT.
+Do NOT generate the summary from the memo reference, date, title, topic, or conditions alone if document content is available.
 
-Memo reference: ${memo.ref || ""}
-Memo date: ${memo.date || ""}
-Memo topic: ${memo.topic || ""}
-Memo conditions: ${memo.conditions || ""}
+Write exactly TWO complete sentences.
 
-Memo content:
-${sourceText}
+Requirements:
+- Each sentence should be approximately 20 to 40 words.
+- Do not use bullet points.
+- Do not use headings.
+- Do not repeat the memo title.
+- Focus on the purpose, requirements, guidance, obligations, procedures, or actions described in the document.
+- Write in professional business English.
+
+Use the following metadata only if the PDF/document content cannot be read:
+
+Memo Reference: ${ref}
+Memo Date: ${date}
+Memo Topic: ${topic}
+Memo Conditions: ${conditions}
+Existing Application Notes: ${application}
 `;
 
     const parts = [{ text: prompt }];
-
+    console.log("Gemini prompt created");
+    console.log("PDF attached:", !!pdfData);
+    console.log("URL attached:", url);
+    
     if (pdfData && pdfData.startsWith("data:")) {
         const inlinePdfPart = dataUrlToGeminiInlinePart(pdfData);
 
