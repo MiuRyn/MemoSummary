@@ -47,8 +47,8 @@ export async function generateMemoSummaryWithGemini(memoInput) {
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.5,
-                    maxOutputTokens: 800
+                    temperature: 0.1,
+                    maxOutputTokens: 300
                 }
             })
         }
@@ -97,17 +97,20 @@ async function buildGeminiParts(memoInput) {
     } = memoInput || {};
 
 const prompt = `
-You are a keyword extraction assistant for government memos.
-Task: Extract exactly the most important keywords or short phrases from the text.
-Constraint:
-1. Provide the keywords separated by semicolons (;).
-2. Do not write full sentences.
-3. Keep the total number of keywords between 3 to 5 items.
-4. Only use terms present in the document.
-5. Example format: Keyword A; Keyword B; Keyword C
+You are summarising a government technical circular for an engineering memo directory.
 
-Input Content:
-(Use the provided document content to extract keywords.)
+Read the attached PDF/document content and write exactly TWO concise sentences.
+
+Rules:
+1. Each sentence must be short, clear, and specific.
+2. Total output must be 35 to 55 words only.
+3. Do not use bullet points.
+4. Do not add a heading.
+5. Do not use vague phrases like "strict regulatory standards" unless the document says that.
+6. Focus on what the circular changes, requires, or instructs.
+7. If the document is about a tender, contract, procedure, form, fee, approval, safety, or technical requirement, say that directly.
+
+Output only the two-sentence summary.
 `;
     
     const parts = [{ text: prompt }];
@@ -271,8 +274,8 @@ Do not answer with fewer than 40 total words.
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.5,
-                    maxOutputTokens: 800
+                    temperature: 0.1,
+                    maxOutputTokens: 300
                 }
             })
         }
