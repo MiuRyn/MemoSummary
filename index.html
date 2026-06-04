@@ -92,7 +92,12 @@
                     <thead>
                         <tr class="bg-slate-50/50 border-b border-slate-200 text-slate-500 text-[11px] font-bold uppercase tracking-wider">
                             <th class="py-3 px-4 w-40">Memo Reference</th>
-                            <th class="py-3 px-4 w-32">Date</th>
+                            <th class="py-3 px-4 w-32">
+                                <button id="dateSortBtn" class="flex items-center gap-2 hover:text-blue-600 transition">
+                                    <span>Date</span>
+                                    <i id="dateSortIcon" class="fa-solid fa-sort text-xs"></i>
+                                </button>
+                            </th>
                             <th class="py-3 px-4">Topic / Scope</th>
                             <th class="py-3 px-4">Conditions</th>
                             <th class="py-3 px-4">Description</th>
@@ -248,6 +253,7 @@
         window.currentPage = 1;
         const itemsPerPage = 20;
         let totalPages = 1;
+        let dateSortDirection = desc;
 
         const memoTableBody = document.getElementById('memoTableBody');
         const memoCount = document.getElementById('memoCount');
@@ -265,6 +271,8 @@
         const pdfUploadStatus = document.getElementById('pdfUploadStatus');
         const saveSpinner = document.getElementById('saveSpinner');
         const saveFormBtn = document.getElementById('saveFormBtn');
+        const dateSortBtn = document.getElementById('dateSortBtn');
+        const dateSortIcon = document.getElementById('dateSortIcon');
 
         function showToast(message, type = "success") {
             const toast = document.getElementById('toast');
@@ -501,13 +509,25 @@
             return `<a href="${memo.url}" target="_blank" rel="noopener noreferrer" class="p-1.5 text-slate-400 hover:text-indigo-600 transition" title="Open Link"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>`;
         }
 
+        function updateDateSortIcon() {
+            if (!dateSortIcon) return;
+
+            if (dateSortDirection === "asc") {
+                dateSortIcon.className = "fa-solid fa-arrow-up text-xs";
+            } else if (dateSortDirection === "desc") {
+                dateSortIcon.className = "fa-solid fa-arrow-down text-xs";
+            } else {
+                dateSortIcon.className = "fa-solid fa-sort text-xs";
+            }
+        }
+        
         function renderTable() {
             const term = searchInput.value.toLowerCase();
             const dateTerm = dateSearchInput.value.toLowerCase();
             const condTerm = condSearchInput.value.toLowerCase();
             const cat = categoryFilter.value;
             
-        const filtered = memos.filter(m =>
+        let filtered = memos.filter(m =>
                 (
                     (m.ref && m.ref.toLowerCase().includes(term)) ||
                     (m.topic && m.topic.toLowerCase().includes(term)) ||
@@ -517,7 +537,19 @@
                 (m.conditions || '').toLowerCase().includes(condTerm) &&
                 (cat === 'all' || m.category === cat)
       );
-           
+        if (dateSortDirection) {
+            filtered.sort((a, b) => {
+                const dateA = a.date ? new Date(a.date).getTime() : 0;
+                const dateB = b.date ? new Date(b.date).getTime() : 0;
+
+                return dateSortDirection === "asc"
+                    ? dateA - dateB
+                    : dateB - dateA;
+            });
+        }
+
+            
+            
             const totalItems = filtered.length;
             totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
             
@@ -1208,7 +1240,21 @@
             };
             reader.readAsDataURL(file);
         };
+        if (dateSortBtn) {
+            dateSortBtn.onclick = () => {
+                if (dateSortDirection === null) {
+                    dateSortDirection = "desc";
+                } else if (dateSortDirection === "desc") {
+                    dateSortDirection = "asc";
+                } else {
+                    dateSortDirection = null;
+                }
 
+                updateDateSortIcon();
+                window.currentPage = 1;
+                renderTable();
+            };
+        }
         renderCategoryTools();
         loadMemos();
     </script>
