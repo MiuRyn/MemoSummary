@@ -47,8 +47,8 @@ export async function generateMemoSummaryWithGemini(memoInput) {
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.2,
-                    maxOutputTokens: 180
+                    temperature: 0.4,
+                    maxOutputTokens: 600
                 }
             })
         }
