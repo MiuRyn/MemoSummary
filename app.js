@@ -8,6 +8,7 @@ import {
 import { getFirestore } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
 import { firebaseConfig } from "./firebase-config.js";
+import { getStoredOpenAIApiKey, requestOpenAIApiKey, generateTwoSentenceMemoSummary } from "./ai-summary.js";
 import { cleanText, formatMemoDate, showToast } from "./utils.js";
 import { filterMemos } from "./search.js";
 import {
@@ -90,6 +91,7 @@ const memoPdfData = requireElement("memoPdfData");
 const pdfUploadStatus = requireElement("pdfUploadStatus");
 const saveSpinner = requireElement("saveSpinner");
 const saveFormBtn = requireElement("saveFormBtn");
+const generateAiSummaryBtn = document.getElementById("generateAiSummaryBtn");
 
 async function loadMemos() {
     try {
@@ -622,6 +624,56 @@ searchInput.oninput = handleFilterChange;
 dateSearchInput.oninput = handleFilterChange;
 condSearchInput.oninput = handleFilterChange;
 categoryFilter.onchange = handleFilterChange;
+
+
+function getMemoDraftFromFormForAi() {
+    return {
+        id: document.getElementById("memoId").value,
+        ref: document.getElementById("memoRef").value,
+        date: document.getElementById("memoDate").value,
+        topic: document.getElementById("memoTopic").value,
+        url: document.getElementById("memoLink").value,
+        category: requireElement("memoCategory").value,
+        conditions: document.getElementById("memoConditions").value,
+        application: document.getElementById("memoApplication").value,
+        pdfData: memoPdfData.value
+    };
+}
+
+if (generateAiSummaryBtn) {
+    generateAiSummaryBtn.onclick = async () => {
+        let apiKey = getStoredOpenAIApiKey();
+
+        if (!apiKey) {
+            apiKey = requestOpenAIApiKey();
+        }
+
+        if (!apiKey) {
+            showToast("OpenAI API key is required for AI summary", "error");
+            return;
+        }
+
+        const originalHtml = generateAiSummaryBtn.innerHTML;
+        generateAiSummaryBtn.disabled = true;
+        generateAiSummaryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Generating';
+
+        try {
+            const summary = await generateTwoSentenceMemoSummary({
+                apiKey,
+                memoDraft: getMemoDraftFromFormForAi()
+            });
+
+            document.getElementById("memoApplication").value = summary;
+            showToast("AI summary generated");
+        } catch (error) {
+            console.error(error);
+            showToast(error.message || "Failed to generate AI summary", "error");
+        } finally {
+            generateAiSummaryBtn.disabled = false;
+            generateAiSummaryBtn.innerHTML = originalHtml;
+        }
+    };
+}
 
 memoPdfInput.onchange = (event) => {
     const file = event.target.files[0];

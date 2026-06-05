@@ -1,212 +1,328 @@
-const OPENAI_API_KEY_STORAGE_KEY = "memo_ai_openai_api_key";
-const DEFAULT_AI_MODEL = "gpt-4o-mini";
-const MAX_SOURCE_TEXT_CHARS = 18000;
+const GEMINI_API_KEY_STORAGE_KEY = "memo_directory_gemini_api_key";
+const GEMINI_MODEL_STORAGE_KEY = "memo_directory_gemini_model";
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+const GEMINI_GENERATE_CONTENT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
-export function getStoredOpenAIApiKey() {
-    return localStorage.getItem(OPENAI_API_KEY_STORAGE_KEY) || "";
+export function getGeminiApiKey() {
+    return localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY) || "";
 }
 
-export function setStoredOpenAIApiKey(apiKey) {
-    const cleaned = (apiKey || "").trim();
+export function saveGeminiApiKey(apiKey) {
+    const cleanKey = (apiKey || "").trim();
 
-    if (cleaned) {
-        localStorage.setItem(OPENAI_API_KEY_STORAGE_KEY, cleaned);
-    } else {
-        localStorage.removeItem(OPENAI_API_KEY_STORAGE_KEY);
+    if (cleanKey) {
+        localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, cleanKey);
     }
-
-    return cleaned;
 }
 
-export function requestOpenAIApiKey() {
-    const existing = getStoredOpenAIApiKey();
-    const entered = window.prompt(
-        "Enter your OpenAI API key. It will be saved only in this browser's localStorage, not in Firebase.",
-        existing
+export function getGeminiModel() {
+    return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || DEFAULT_GEMINI_MODEL;
+}
+
+export function saveGeminiModel(model) {
+    const cleanModel = (model || "").trim();
+
+    if (cleanModel) {
+        localStorage.setItem(GEMINI_MODEL_STORAGE_KEY, cleanModel);
+    }
+}
+
+export async function generateMemoSummaryWithGemini(memoInput) {
+    const apiKey = getOrPromptForGeminiApiKey();
+    const model = getGeminiModel();
+    const parts = await buildGeminiParts(memoInput);
+
+    const response = await fetch(
+        `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        role: "user",
+                        parts
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 1000
+                }
+            })
+        }
     );
 
-    if (entered === null) return "";
+    const data = await response.json().catch(() => ({}));
 
-    return setStoredOpenAIApiKey(entered);
+    if (!response.ok) {
+        throw new Error(formatGeminiError(response.status, data));
+    }
+
+    const summary = extractGeminiText(data);
+
+    if (!summary) {
+        throw new Error("Gemini returned no summary text.");
+    }
+
+    return cleanText(summary)
+    .replace(/\n/g, " ")
+    .replace(/\s*;\s*/g, "; ")
+    .replace(/\.$/, "");
+}
+
+function getOrPromptForGeminiApiKey() {
+    let apiKey = getGeminiApiKey();
+
+    if (!apiKey) {
+        apiKey = window.prompt("Enter your Gemini API key. It will be saved only in this browser:");
+
+        if (!apiKey || !apiKey.trim()) {
+            throw new Error("Gemini API key is required.");
+        }
+
+        saveGeminiApiKey(apiKey);
+    }
+
+    return apiKey.trim();
+}
+
+async function buildGeminiParts(memoInput) {
+    const {
+        ref = "",
+        date = "",
+        topic = "",
+        conditions = "",
+        application = "",
+        url = "",
+        pdfData = ""
+    } = memoInput || {};
+
+const prompt = `
+Extract 3 to 5 important key phrases from the document.
+Format requirements:
+- Separate each phrase with a semicolon (;).
+- Do not use sentences.
+- Do not truncate phrases.
+- If a phrase is long, keep it complete.
+`;
+    
+    const parts = [{ text: prompt }];
+    console.log("Gemini prompt created");
+    console.log("PDF attached:", !!pdfData);
+    console.log("URL attached:", url);
+    
+    if (pdfData && pdfData.startsWith("data:")) {
+        const inlinePdfPart = dataUrlToGeminiInlinePart(pdfData);
+
+        if (inlinePdfPart) {
+            parts.push(inlinePdfPart);
+            return parts;
+        }
+    }
+
+    const fetchedContentPart = await tryFetchUrlAsGeminiPart(url);
+
+    if (fetchedContentPart) {
+        parts.push(fetchedContentPart);
+    }
+
+    return parts;
+}
+
+function dataUrlToGeminiInlinePart(dataUrl) {
+    const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
+
+    if (!match) return null;
+
+    const mimeType = match[1];
+    const base64Data = match[2];
+
+    return {
+        inline_data: {
+            mime_type: mimeType,
+            data: base64Data
+        }
+    };
+}
+
+async function tryFetchUrlAsGeminiPart(url) {
+    const cleanUrl = (url || "").trim();
+
+    if (!cleanUrl || /^file:/i.test(cleanUrl) || /^\\\\/.test(cleanUrl)) {
+        return null;
+    }
+
+    try {
+        const response = await fetch(cleanUrl, {
+            cache: "no-store"
+        });
+
+        if (!response.ok) return null;
+
+        const contentType = response.headers.get("content-type") || "";
+
+        if (/application\/pdf/i.test(contentType) || /\.pdf($|\?)/i.test(cleanUrl)) {
+            const buffer = await response.arrayBuffer();
+            return {
+                inline_data: {
+                    mime_type: "application/pdf",
+                    data: arrayBufferToBase64(buffer)
+                }
+            };
+        }
+
+        if (/text\/|json|xml|html/i.test(contentType)) {
+            const text = await response.text();
+            return {
+                text: `Fetched document text:\n${htmlToReadableText(text).slice(0, 2500)}`
+            };
+        }
+
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+function htmlToReadableText(text) {
+    const raw = text || "";
+
+    if (/<html|<body|<div|<p|<table/i.test(raw)) {
+        const doc = new DOMParser().parseFromString(raw, "text/html");
+
+        doc.querySelectorAll("script, style, nav, header, footer").forEach((node) => node.remove());
+
+        return cleanText(doc.body?.textContent || raw);
+    }
+
+    return cleanText(raw);
+}
+
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000;
+    let binary = "";
+
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+
+    return btoa(binary);
+}
+
+function extractGeminiText(data) {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  // 僅加入基本清理，移除換行符與多餘空格，不移除括號數字，避免誤刪
+  return parts
+    .map(p => p.text)
+    .join(" ")
+    .replace(/\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function forceTwoSentenceLimit(text) {
+    const clean = cleanText(text);
+    const sentences = clean.match(/[^.!?]+[.!?]+/g);
+
+    if (!sentences || sentences.length <= 2) {
+        return clean;
+    }
+
+    return sentences.slice(0, 2).join(" ").trim();
+}
+
+async function ensureTwoSentenceSummary(summary, originalParts, apiKey, model) {
+    const cleanSummary = cleanText(summary);
+    const wordCount = cleanSummary.split(/\s+/).filter(Boolean).length;
+
+    if (wordCount >= 35) {
+        return forceTwoSentenceLimit(cleanSummary);
+    }
+
+    const retryPrompt = `
+Your previous answer was too short: "${cleanSummary}"
+
+Rewrite it as exactly TWO complete sentences.
+Each sentence must contain 20 to 35 words.
+Base the answer primarily on the attached PDF or document content.
+Do not use headings, bullets, or a title.
+Do not answer with fewer than 40 total words.
+`;
+
+    const retryParts = [
+        { text: retryPrompt },
+        ...originalParts.slice(1)
+    ];
+
+    const response = await fetch(
+        `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        role: "user",
+                        parts: retryParts
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 1000
+                }
+            })
+        }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(formatGeminiError(response.status, data));
+    }
+
+    const retrySummary = extractGeminiText(data);
+
+    if (!retrySummary) {
+        throw new Error("Gemini returned no summary text.");
+    }
+
+    return forceTwoSentenceLimit(retrySummary);
+}
+// 在返回結果前增加一個截斷修正
+function sanitizeOutput(text) {
+  // 如果最後一個句子沒有標點符號，自動加上
+  if (text.length > 0 && !/[.!?]$/.test(text)) {
+    return text.substring(0, text.lastIndexOf(' ')) + ".";
+  }
+  return text;
+}
+
+function formatGeminiError(status, data) {
+    const message =
+        data?.error?.message ||
+        data?.message ||
+        "Unknown Gemini API error.";
+
+    if (status === 400) {
+        return `Gemini request failed: bad request. ${message}`;
+    }
+
+    if (status === 401 || status === 403) {
+        return `Gemini request failed: API key is invalid or not allowed. ${message}`;
+    }
+
+    if (status === 429) {
+        return `Gemini request failed: quota or rate limit exceeded. ${message}`;
+    }
+
+    return `Gemini request failed: HTTP ${status}. ${message}`;
 }
 
 function cleanText(value) {
     return (value || "").replace(/\s+/g, " ").trim();
-}
-
-function isLikelyPdfUrl(url) {
-    return /\.pdf($|[?#])/i.test(url || "");
-}
-
-function isLocalOrFileUrl(url) {
-    const value = cleanText(url);
-    return value.startsWith("file:") || value.startsWith("\\\\");
-}
-
-function base64DataUrlToUint8Array(dataUrl) {
-    const base64 = String(dataUrl).split(",")[1] || "";
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-
-    for (let i = 0; i < binary.length; i += 1) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-
-    return bytes;
-}
-
-async function loadPdfJs() {
-    if (window.pdfjsLib) return window.pdfjsLib;
-
-    const pdfjsLib = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
-
-    return pdfjsLib;
-}
-
-async function extractPdfTextFromBytes(bytes) {
-    const pdfjsLib = await loadPdfJs();
-    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-    const pageTexts = [];
-    const pageLimit = Math.min(pdf.numPages, 20);
-
-    for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
-        const page = await pdf.getPage(pageNumber);
-        const content = await page.getTextContent();
-        const pageText = content.items
-            .map(item => item && item.str ? item.str : "")
-            .join(" ");
-
-        pageTexts.push(pageText);
-
-        if (pageTexts.join(" ").length >= MAX_SOURCE_TEXT_CHARS) break;
-    }
-
-    return cleanText(pageTexts.join("\n"));
-}
-
-async function extractTextFromUrl(url) {
-    if (!url) return "";
-
-    if (isLocalOrFileUrl(url)) {
-        throw new Error("Browser security blocks reading local/network file paths. Copy the file path into Chrome or upload the PDF instead.");
-    }
-
-    const response = await fetch(url, { cache: "no-store" });
-
-    if (!response.ok) {
-        throw new Error(`Could not read URL. HTTP ${response.status}`);
-    }
-
-    const contentType = response.headers.get("content-type") || "";
-
-    if (contentType.includes("application/pdf") || isLikelyPdfUrl(url)) {
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        return extractPdfTextFromBytes(bytes);
-    }
-
-    const text = await response.text();
-
-    if (contentType.includes("text/html") || /<html[\s>]/i.test(text)) {
-        const documentClone = new DOMParser().parseFromString(text, "text/html");
-        documentClone.querySelectorAll("script, style, nav, header, footer").forEach(element => element.remove());
-        return cleanText(documentClone.body ? documentClone.body.textContent : text).slice(0, MAX_SOURCE_TEXT_CHARS);
-    }
-
-    return cleanText(text).slice(0, MAX_SOURCE_TEXT_CHARS);
-}
-
-async function extractTextFromPdfData(pdfData) {
-    if (!pdfData) return "";
-    if (!String(pdfData).startsWith("data:application/pdf")) return "";
-
-    const bytes = base64DataUrlToUint8Array(pdfData);
-    return extractPdfTextFromBytes(bytes);
-}
-
-export async function extractMemoContentForAi(memoDraft) {
-    const parts = [];
-
-    if (memoDraft.ref) parts.push(`Memo reference: ${memoDraft.ref}`);
-    if (memoDraft.date) parts.push(`Date: ${memoDraft.date}`);
-    if (memoDraft.topic) parts.push(`Topic: ${memoDraft.topic}`);
-    if (memoDraft.conditions) parts.push(`Conditions: ${memoDraft.conditions}`);
-    if (memoDraft.application) parts.push(`Existing description: ${memoDraft.application}`);
-
-    let documentText = "";
-
-    if (memoDraft.pdfData) {
-        documentText = await extractTextFromPdfData(memoDraft.pdfData);
-    }
-
-    if (!documentText && memoDraft.url) {
-        documentText = await extractTextFromUrl(memoDraft.url);
-    }
-
-    if (documentText) {
-        parts.push(`Document content: ${documentText.slice(0, MAX_SOURCE_TEXT_CHARS)}`);
-    }
-
-    const combined = cleanText(parts.join("\n\n"));
-
-    if (!combined) {
-        throw new Error("No memo content found. Add a URL, upload a PDF, or fill in memo fields first.");
-    }
-
-    return combined.slice(0, MAX_SOURCE_TEXT_CHARS);
-}
-
-function readResponsesApiText(data) {
-    if (data.output_text) return cleanText(data.output_text);
-
-    const chunks = [];
-
-    for (const outputItem of data.output || []) {
-        for (const contentItem of outputItem.content || []) {
-            if (contentItem.text) chunks.push(contentItem.text);
-        }
-    }
-
-    return cleanText(chunks.join(" "));
-}
-
-export async function generateTwoSentenceMemoSummary({ apiKey, memoDraft }) {
-    const sourceText = await extractMemoContentForAi(memoDraft);
-
-    const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-            model: DEFAULT_AI_MODEL,
-            input: [
-                {
-                    role: "system",
-                    content: "You are an engineering memo analyst. Write clear, factual summaries only from the provided memo content. Do not invent details."
-                },
-                {
-                    role: "user",
-                    content: `Create exactly two concise sentences summarising this memo. Sentence 1 should state the purpose/topic. Sentence 2 should state the practical application or key requirement. Avoid bullet points.\n\n${sourceText}`
-                }
-            ],
-            temperature: 0.2,
-            max_output_tokens: 180
-        })
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI request failed: HTTP ${response.status}. ${errorText.slice(0, 240)}`);
-    }
-
-    const data = await response.json();
-    const summary = readResponsesApiText(data);
-
-    if (!summary) {
-        throw new Error("OpenAI returned an empty summary.");
-    }
-
-    return summary;
 }
