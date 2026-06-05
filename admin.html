@@ -1419,6 +1419,7 @@ function normalizeMemoRefForDuplicateCheck(value) {
             }
         }
 
+//import memo from devb webpage        
         async function importDEVBMemos() {
             const importDevbBtn = document.getElementById("importDevbBtn");
             const originalText = importDevbBtn ? importDevbBtn.innerHTML : "";
@@ -1448,16 +1449,30 @@ function normalizeMemoRefForDuplicateCheck(value) {
                     throw new Error(`No valid DEVB circulars parsed. Found ${rawItems.length} raw items. Check Console for first sample.`);
                 }
 
-                const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
-                const newCount = importedMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
+
+                    const existingKeys = new Set(
+                    memos.map(getUrlMemoKey).filter(Boolean)
+                );
+
+                const newCount = importedMemos.filter(
+                    memo => !existingKeys.has(getUrlMemoKey(memo))
+                ).length;
+
                 const updatedCount = importedMemos.length - newCount;
+
+                const existingRefDateKeys = new Set(
+                    memos
+                        .map(memo => getMemoRefDateDuplicateKey(memo))
+                        .filter(Boolean)
+                );
 
                 const incomingRefDateKeys = new Set();
                 const newImportedMemos = [];
 
                 for (const importedMemo of importedMemos) {
                     const duplicateKey = getMemoRefDateDuplicateKey(importedMemo);
-
+                  
+                    
                     if (!duplicateKey) continue;
                     if (existingRefDateKeys.has(duplicateKey)) continue;
                     if (incomingRefDateKeys.has(duplicateKey)) continue;
@@ -1474,7 +1489,10 @@ function normalizeMemoRefForDuplicateCheck(value) {
 
                 
                 const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
-                const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...importedMemos]);
+               const mergedUrlMemos = dedupeMemosByUrlRefId([
+                            ...existingUrlMemos,
+                            ...newImportedMemos
+                ]);
 
                 await overwriteUrlMemoChunks(mergedUrlMemos);
                 const cleanedCount = await cleanupIndividualUrlDocuments(importedMemos);
@@ -1498,6 +1516,8 @@ function normalizeMemoRefForDuplicateCheck(value) {
             excelImportInput.onchange = importExcelMemos;
         }
 
+//end of import memo from devb webpage function
+        
         const importDevbButton = document.getElementById("importDevbBtn");
         if (importDevbButton) importDevbButton.onclick = importDEVBMemos;
 
