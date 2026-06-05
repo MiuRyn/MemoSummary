@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Government Memo Directory Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -21,12 +22,16 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
                 <h1 class="text-xl font-bold text-slate-900 tracking-tight">Government Memo Directory Admin</h1>
-                <p class="text-xs text-slate-500 mt-0.5">Admin tools for JSON import, DEVB import, and database export</p>
+                <p class="text-xs text-slate-500 mt-0.5">Admin tools for JSON import, Excel import, DEVB import, and database export</p>
             </div>
             <div class="flex gap-2 w-full sm:w-auto">
                 <input type="file" id="importInput" class="hidden" accept=".json">
                 <button id="importBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-file-import"></i> Import
+                </button>
+                <input type="file" id="excelImportInput" class="hidden" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                <button id="importExcelBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-emerald-200 text-emerald-700 rounded-md text-sm font-medium hover:bg-emerald-50 transition flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-file-excel"></i> Import Excel
                 </button>
                 <button id="importDevbBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-blue-200 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-50 transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-cloud-arrow-down"></i> Import DEVB
@@ -275,6 +280,7 @@
         const catList = document.getElementById('catList');
         const memoCategorySelect = document.getElementById('memoCategory');
         const importInput = document.getElementById('importInput');
+        const excelImportInput = document.getElementById('excelImportInput');
         const memoPdfInput = document.getElementById('memoPdfInput');
         const memoPdfData = document.getElementById('memoPdfData');
         const pdfUploadStatus = document.getElementById('pdfUploadStatus');
@@ -1182,6 +1188,237 @@ function normalizeMemoRefForDuplicateCheck(value) {
             return `${normalizedRef}::${normalizedDate}`;
         }
         
+
+        function getExcelCellString(value) {
+            if (value === null || value === undefined) return "";
+            if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                const year = value.getFullYear();
+                const month = String(value.getMonth() + 1).padStart(2, "0");
+                const day = String(value.getDate()).padStart(2, "0");
+                return `${year}-${month}-${day}`;
+            }
+            return cleanText(String(value));
+        }
+
+        function normalizeExcelHeader(value) {
+            return getExcelCellString(value)
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "");
+        }
+
+        function findExcelColumnIndex(headers, aliases) {
+            const normalizedAliases = aliases.map(normalizeExcelHeader);
+            return headers.findIndex(header => normalizedAliases.includes(normalizeExcelHeader(header)));
+        }
+
+        function excelSerialDateToISODate(serial) {
+            const serialNumber = Number(serial);
+
+            if (!Number.isFinite(serialNumber) || serialNumber <= 0) return "";
+
+            const utcDays = Math.floor(serialNumber - 25569);
+            const utcValue = utcDays * 86400;
+            const date = new Date(utcValue * 1000);
+
+            if (Number.isNaN(date.getTime())) return "";
+
+            const year = date.getUTCFullYear();
+            const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+            const day = String(date.getUTCDate()).padStart(2, "0");
+
+            return `${year}-${month}-${day}`;
+        }
+
+        function normalizeExcelMemoDate(value) {
+            if (value === null || value === undefined || value === "") return "";
+
+            if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                const year = value.getFullYear();
+                const month = String(value.getMonth() + 1).padStart(2, "0");
+                const day = String(value.getDate()).padStart(2, "0");
+                return `${year}-${month}-${day}`;
+            }
+
+            if (typeof value === "number") {
+                return excelSerialDateToISODate(value);
+            }
+
+            const raw = cleanText(String(value));
+            if (!raw) return "";
+
+            if (/^\d+(\.\d+)?$/.test(raw)) {
+                const serialDate = excelSerialDateToISODate(raw);
+                if (serialDate) return serialDate;
+            }
+
+            const isoMatch = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+            if (isoMatch) {
+                return `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
+            }
+
+            const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (slashMatch) {
+                const day = slashMatch[1].padStart(2, "0");
+                const month = slashMatch[2].padStart(2, "0");
+                const year = slashMatch[3];
+                return `${year}-${month}-${day}`;
+            }
+
+            const parsed = new Date(raw);
+            if (!Number.isNaN(parsed.getTime()) && /\d{4}/.test(raw)) {
+                const year = parsed.getFullYear();
+                const month = String(parsed.getMonth() + 1).padStart(2, "0");
+                const day = String(parsed.getDate()).padStart(2, "0");
+                return `${year}-${month}-${day}`;
+            }
+
+            return raw;
+        }
+
+        function createStableExcelMemoId(ref, topic, date, url) {
+            const key = `${ref || ""}|${topic || ""}|${date || ""}|${url || ""}`;
+            return `excel-${btoa(unescape(encodeURIComponent(key))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 40) || Date.now()}`;
+        }
+
+        function parseExcelMemoWorksheet(workbook) {
+            const firstSheetName = workbook.SheetNames[0];
+
+            if (!firstSheetName) {
+                throw new Error("The Excel file does not contain any worksheets.");
+            }
+
+            const worksheet = workbook.Sheets[firstSheetName];
+            const rows = XLSX.utils.sheet_to_json(worksheet, {
+                header: 1,
+                defval: "",
+                raw: true,
+                blankrows: false
+            });
+
+            if (!rows.length) {
+                throw new Error("The first worksheet is empty.");
+            }
+
+            const headerRowIndex = rows.findIndex(row => {
+                const normalized = row.map(normalizeExcelHeader);
+                return normalized.includes("title") && normalized.includes("url");
+            });
+
+            if (headerRowIndex === -1) {
+                throw new Error("Could not find the Excel header row. Expected columns: Ref, Title, Date, Url.");
+            }
+
+            const headers = rows[headerRowIndex];
+            const refIndex = findExcelColumnIndex(headers, ["Ref", "Reference", "Memo Ref", "Circular No"]);
+            const titleIndex = findExcelColumnIndex(headers, ["Title", "Topic", "Memo Title", "Subject"]);
+            const dateIndex = findExcelColumnIndex(headers, ["Date", "Issue Date", "Memo Date"]);
+            const urlIndex = findExcelColumnIndex(headers, ["Url", "URL", "Link", "File", "Path"]);
+
+            if (titleIndex === -1 || urlIndex === -1) {
+                throw new Error("The Excel file must include at least Title and Url columns.");
+            }
+
+            const importedMemos = [];
+
+            for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
+                const row = rows[rowIndex] || [];
+                const ref = refIndex >= 0 ? getExcelCellString(row[refIndex]) : "";
+                const topic = getExcelCellString(row[titleIndex]);
+                const date = dateIndex >= 0 ? normalizeExcelMemoDate(row[dateIndex]) : "";
+                const url = getExcelCellString(row[urlIndex]);
+
+                if (!ref && !topic && !date && !url) continue;
+                if (!topic || !url) continue;
+
+                importedMemos.push({
+                    id: createStableExcelMemoId(ref, topic, date, url),
+                    ref,
+                    date,
+                    topic,
+                    url,
+                    category: categories.includes("Technical Specifications") ? "Technical Specifications" : (categories[0] || "General"),
+                    conditions: "",
+                    application: "",
+                    pdfData: "",
+                    source: "Excel Import"
+                });
+            }
+
+            return dedupeMemosByUrlRefId(importedMemos);
+        }
+
+        async function parseExcelMemoFile(file) {
+            if (!window.XLSX) {
+                throw new Error("Excel parser failed to load. Check your internet connection and refresh the admin page.");
+            }
+
+            const buffer = await file.arrayBuffer();
+            const workbook = XLSX.read(buffer, {
+                type: "array",
+                cellDates: true
+            });
+
+            return parseExcelMemoWorksheet(workbook);
+        }
+
+        async function importExcelMemos() {
+            const importExcelBtn = document.getElementById("importExcelBtn");
+            const originalText = importExcelBtn ? importExcelBtn.innerHTML : "";
+            const file = excelImportInput && excelImportInput.files ? excelImportInput.files[0] : null;
+
+            if (!file) return;
+
+            try {
+                if (importExcelBtn) {
+                    importExcelBtn.disabled = true;
+                    importExcelBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing';
+                }
+
+                showToast("Reading Excel memo records...");
+
+                const importedMemos = await parseExcelMemoFile(file);
+
+                if (!importedMemos.length) {
+                    throw new Error("No valid memo rows found. Each row needs at least Title and Url.");
+                }
+
+                const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
+                const newCount = importedMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
+                const updatedCount = importedMemos.length - newCount;
+                const urlMemos = importedMemos.filter(memo => cleanText(memo.url || ""));
+                const nonUrlMemos = importedMemos.filter(memo => !cleanText(memo.url || ""));
+
+                if (urlMemos.length) {
+                    const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
+                    const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...urlMemos]);
+                    await overwriteUrlMemoChunks(mergedUrlMemos);
+                    await cleanupIndividualUrlDocuments(urlMemos);
+                }
+
+                for (const memo of nonUrlMemos) {
+                    await setDoc(doc(db, "memos", memo.id), memo);
+                }
+
+                if (!categories.includes("Technical Specifications")) {
+                    categories.push("Technical Specifications");
+                    saveCats();
+                    renderCategoryTools();
+                }
+
+                excelImportInput.value = "";
+                await loadMemos();
+                showToast(`Excel import complete: ${newCount} new, ${updatedCount} updated`);
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || "Failed to import Excel file", "error");
+            } finally {
+                if (importExcelBtn) {
+                    importExcelBtn.disabled = false;
+                    importExcelBtn.innerHTML = originalText;
+                }
+            }
+        }
+
         async function importDEVBMemos() {
             const importDevbBtn = document.getElementById("importDevbBtn");
             const originalText = importDevbBtn ? importDevbBtn.innerHTML : "";
@@ -1253,6 +1490,12 @@ function normalizeMemoRefForDuplicateCheck(value) {
                     importDevbBtn.innerHTML = originalText;
                 }
             }
+        }
+
+        const importExcelButton = document.getElementById("importExcelBtn");
+        if (importExcelButton && excelImportInput) {
+            importExcelButton.onclick = () => excelImportInput.click();
+            excelImportInput.onchange = importExcelMemos;
         }
 
         const importDevbButton = document.getElementById("importDevbBtn");
