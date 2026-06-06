@@ -90,13 +90,25 @@ async function summarizeUploadedPdfWithNetlifyFunction({ pdfData, ref, date, top
 
 function normalizeAiSummaryResult(data) {
     const metadata = data && typeof data.metadata === "object" && data.metadata ? data.metadata : {};
+    const summarySource = data?.summary ?? metadata.summary ?? "";
+    const summaryObject = summarySource && typeof summarySource === "object" ? summarySource : null;
 
-    return {
-        summary: cleanSummary(data?.summary || metadata.summary || ""),
-        ref: cleanText(data?.ref || metadata.ref || ""),
-        date: normalizeDateForInput(data?.date || metadata.date || ""),
-        topic: cleanText(data?.topic || metadata.topic || "")
+    const result = {
+        summary: cleanSummary(summaryObject?.summary ?? summaryObject?.text ?? summarySource),
+        ref: cleanText(data?.ref ?? metadata.ref ?? summaryObject?.ref ?? ""),
+        date: normalizeDateForInput(data?.date ?? metadata.date ?? summaryObject?.date ?? ""),
+        topic: cleanText(data?.topic ?? metadata.topic ?? summaryObject?.topic ?? "")
     };
+
+    result.toString = function () {
+        return this.summary || "";
+    };
+
+    result.valueOf = function () {
+        return this.summary || "";
+    };
+
+    return result;
 }
 
 function normalizeDateForInput(value) {
@@ -135,7 +147,14 @@ function cleanSummary(value) {
 }
 
 function cleanText(value) {
-    return (value || "")
+    if (value === null || value === undefined) return "";
+    if (typeof value === "object") {
+        if (typeof value.summary === "string") return cleanText(value.summary);
+        if (typeof value.text === "string") return cleanText(value.text);
+        return "";
+    }
+
+    return String(value)
         .replace(/\s+/g, " ")
         .trim();
 }
