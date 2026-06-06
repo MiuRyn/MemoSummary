@@ -49,7 +49,7 @@ function parseCEDDTechnicalCircularsHtml(html) {
         memos.push({
             id: createStableCEDDId(circularNo, url),
             ref: `CEDD TC No. ${circularNo}`,
-            date: normalizeCEDDCircularDate(circularNo),
+            date: "",
             topic: title,
             url,
             category: "Technical Specifications",
