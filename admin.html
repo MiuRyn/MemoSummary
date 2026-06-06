@@ -653,24 +653,56 @@
             if (!generateSummaryBtn) return;
 
             const originalHtml = generateSummaryBtn.innerHTML;
+            const memoRefInput = document.getElementById('memoRef');
+            const memoDateInput = document.getElementById('memoDate');
+            const memoTopicInput = document.getElementById('memoTopic');
+            const memoApplicationInput = document.getElementById('memoApplication');
 
             try {
                 generateSummaryBtn.disabled = true;
                 generateSummaryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Generating</span>';
 
-                const summary = await generateMemoSummaryWithGemini({
-                    ref: document.getElementById('memoRef').value,
-                    date: document.getElementById('memoDate').value,
-                    topic: document.getElementById('memoTopic').value,
+                const aiResult = await generateMemoSummaryWithGemini({
+                    ref: memoRefInput.value,
+                    date: memoDateInput.value,
+                    topic: memoTopicInput.value,
                     url: document.getElementById('memoLink').value,
                     category: document.getElementById('memoCategory').value,
                     conditions: document.getElementById('memoConditions').value,
-                    application: document.getElementById('memoApplication').value,
+                    application: memoApplicationInput.value,
                     pdfData: memoPdfData.value
                 });
 
-                document.getElementById('memoApplication').value = summary;
-                showToast("Gemini summary generated");
+                const summaryText = typeof aiResult === "string" ? aiResult : (aiResult.summary || "");
+
+                if (summaryText) {
+                    memoApplicationInput.value = summaryText;
+                }
+
+                let filledFields = 0;
+
+                if (typeof aiResult === "object" && aiResult) {
+                    if (!cleanText(memoRefInput.value) && cleanText(aiResult.ref || "")) {
+                        memoRefInput.value = aiResult.ref;
+                        filledFields++;
+                    }
+
+                    if (!cleanText(memoDateInput.value) && cleanText(aiResult.date || "")) {
+                        memoDateInput.value = aiResult.date;
+                        filledFields++;
+                    }
+
+                    if (!cleanText(memoTopicInput.value) && cleanText(aiResult.topic || "")) {
+                        memoTopicInput.value = aiResult.topic;
+                        filledFields++;
+                    }
+                }
+
+                showToast(
+                    filledFields
+                        ? `Gemini summary generated and ${filledFields} blank field(s) filled`
+                        : "Gemini summary generated"
+                );
             } catch (error) {
                 console.error(error);
                 showToast(error.message || "Failed to generate Gemini summary", "error");
