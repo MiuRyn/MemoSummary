@@ -22,20 +22,31 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
                 <h1 class="text-xl font-bold text-slate-900 tracking-tight">Memo Directory Admin</h1>
-                <p class="text-xs text-slate-500 mt-0.5">Admin tools for JSON import, Excel import, DEVB import, and database export</p>
+                <p class="text-xs text-slate-500 mt-0.5">Admin tools for DEVB, Excel, CEDD, JSON import, and database export</p>
             </div>
             <div class="flex gap-2 w-full sm:w-auto">
                 <input type="file" id="importInput" class="hidden" accept=".json">
-                <button id="importBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-file-import"></i> Import
-                </button>
                 <input type="file" id="excelImportInput" class="hidden" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
-                <button id="importExcelBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-emerald-200 text-emerald-700 rounded-md text-sm font-medium hover:bg-emerald-50 transition flex items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-file-excel"></i> Import Excel
-                </button>
-                <button id="importDevbBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-blue-200 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-50 transition flex items-center justify-center gap-1.5">
-                    <i class="fa-solid fa-cloud-arrow-down"></i> Import DEVB
-                </button>
+                <div id="importMenuWrap" class="relative flex-1 sm:flex-initial">
+                    <button id="importMenuBtn" type="button" class="w-full sm:w-auto px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-file-import"></i> Import
+                        <i class="fa-solid fa-chevron-down text-[10px]"></i>
+                    </button>
+                    <div id="importMenu" class="hidden absolute right-0 mt-2 w-44 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                        <button id="importDevbMenuBtn" type="button" class="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2">
+                            <i class="fa-solid fa-cloud-arrow-down w-4"></i> DEVB
+                        </button>
+                        <button id="importExcelMenuBtn" type="button" class="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 flex items-center gap-2">
+                            <i class="fa-solid fa-file-excel w-4"></i> Excel
+                        </button>
+                        <button id="importCeddMenuBtn" type="button" class="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-2">
+                            <i class="fa-solid fa-building-columns w-4"></i> CEDD
+                        </button>
+                        <button id="importJsonMenuBtn" type="button" class="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                            <i class="fa-solid fa-code w-4"></i> JSON
+                        </button>
+                    </div>
+                </div>
                 <button id="exportBtn" class="flex-1 sm:flex-initial px-3 py-1.5 border border-slate-200 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
                     <i class="fa-solid fa-download"></i> Export
                 </button>
@@ -241,6 +252,7 @@
         import { getFirestore, collection, getDocs, setDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
         import { isLocalFileLink, localFileLinkToCopyPath, copyTextToClipboard } from "./local-file-links.js";
         import { generateMemoSummaryWithGemini } from "./ai-summary.js";
+        import { loadCEDDMemos } from "./cedd-importer.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCtQbVm91_lsmzz2XcX60bhUCYH0CjRb_E",
@@ -1362,7 +1374,7 @@ function normalizeMemoRefForDuplicateCheck(value) {
         }
 
         async function importExcelMemos() {
-            const importExcelBtn = document.getElementById("importExcelBtn");
+            const importExcelBtn = document.getElementById("importMenuBtn");
             const originalText = importExcelBtn ? importExcelBtn.innerHTML : "";
             const file = excelImportInput && excelImportInput.files ? excelImportInput.files[0] : null;
 
@@ -1421,7 +1433,7 @@ function normalizeMemoRefForDuplicateCheck(value) {
 
 //import memo from devb webpage        
         async function importDEVBMemos() {
-            const importDevbBtn = document.getElementById("importDevbBtn");
+            const importDevbBtn = document.getElementById("importMenuBtn");
             const originalText = importDevbBtn ? importDevbBtn.innerHTML : "";
 
             try {
@@ -1510,32 +1522,101 @@ function normalizeMemoRefForDuplicateCheck(value) {
             }
         }
 
-        const importExcelButton = document.getElementById("importExcelBtn");
-        if (importExcelButton && excelImportInput) {
-            importExcelButton.onclick = () => excelImportInput.click();
-            excelImportInput.onchange = importExcelMemos;
+
+        async function importCEDDMemos() {
+            const importMenuBtn = document.getElementById("importMenuBtn");
+            const originalText = importMenuBtn ? importMenuBtn.innerHTML : "";
+
+            try {
+                if (importMenuBtn) {
+                    importMenuBtn.disabled = true;
+                    importMenuBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing CEDD';
+                }
+
+                showToast("Importing CEDD technical circulars...");
+
+                const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
+                const { mergedMemos, changedMemos } = await loadCEDDMemos(memos);
+
+                if (!changedMemos.length) {
+                    await loadMemos();
+                    showToast("CEDD import complete: no new or updated records");
+                    return;
+                }
+
+                const changedUrlMemos = changedMemos.filter(memo => cleanText(memo.url || ""));
+                const mergedUrlMemos = mergedMemos.filter(memo => cleanText(memo.url || ""));
+                const newCount = changedUrlMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
+                const updatedCount = changedUrlMemos.length - newCount;
+
+                await overwriteUrlMemoChunks(mergedUrlMemos);
+                const cleanedCount = await cleanupIndividualUrlDocuments(changedUrlMemos);
+
+                await loadMemos();
+                showToast(`CEDD import complete: ${newCount} new, ${updatedCount} updated, ${cleanedCount} old individual docs removed`);
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || "Failed to import CEDD circulars", "error");
+            } finally {
+                if (importMenuBtn) {
+                    importMenuBtn.disabled = false;
+                    importMenuBtn.innerHTML = originalText;
+                }
+            }
         }
 
-//end of import memo from devb webpage function
-        
-        const importDevbButton = document.getElementById("importDevbBtn");
-        if (importDevbButton) importDevbButton.onclick = importDEVBMemos;
+        const importMenuBtn = document.getElementById("importMenuBtn");
+        const importMenu = document.getElementById("importMenu");
+        const importMenuWrap = document.getElementById("importMenuWrap");
 
-        const exportButton = document.getElementById('exportBtn');
-        if (exportButton) {
-            exportButton.onclick = () => {
-                const blob = new Blob([JSON.stringify(memos, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'tender_memos.json';
-                a.click();
+        if (importMenuBtn && importMenu && importMenuWrap) {
+            importMenuBtn.onclick = () => importMenu.classList.toggle("hidden");
+
+            document.addEventListener("click", (event) => {
+                if (!importMenuWrap.contains(event.target)) {
+                    importMenu.classList.add("hidden");
+                }
+            });
+        }
+
+        const closeImportMenu = () => {
+            if (importMenu) importMenu.classList.add("hidden");
+        };
+
+        const importDevbMenuButton = document.getElementById("importDevbMenuBtn");
+        if (importDevbMenuButton) {
+            importDevbMenuButton.onclick = () => {
+                closeImportMenu();
+                importDEVBMemos();
             };
         }
 
-        const importButton = document.getElementById('importBtn');
-        if (importButton && importInput) {
-            importButton.onclick = () => importInput.click();
+        const importExcelMenuButton = document.getElementById("importExcelMenuBtn");
+        if (importExcelMenuButton && excelImportInput) {
+            importExcelMenuButton.onclick = () => {
+                closeImportMenu();
+                excelImportInput.click();
+            };
+            excelImportInput.onchange = importExcelMemos;
+        }
+
+        const importCeddMenuButton = document.getElementById("importCeddMenuBtn");
+        if (importCeddMenuButton) {
+            importCeddMenuButton.onclick = () => {
+                closeImportMenu();
+                importCEDDMemos();
+            };
+        }
+
+        const importJsonMenuButton = document.getElementById("importJsonMenuBtn");
+        if (importJsonMenuButton && importInput) {
+            importJsonMenuButton.onclick = () => {
+                closeImportMenu();
+                importInput.click();
+            };
+        }
+
+        if (importInput) {
             importInput.onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -1553,6 +1634,8 @@ function normalizeMemoRefForDuplicateCheck(value) {
                     }
                 } catch (err) {
                     showToast("Failed to import file", "error");
+                } finally {
+                    importInput.value = "";
                 }
             };
             reader.readAsText(file);
