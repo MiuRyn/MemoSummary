@@ -10,10 +10,7 @@ export async function loadCEDDMemos(existingMemos = []) {
 }
 
 async function fetchCEDDTechnicalCircularsHtml() {
-    const proxyUrl =
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(CEDD_TECHNICAL_CIRCULARS_URL)}`;
-
-    const response = await fetch(proxyUrl, {
+    const response = await fetch("/.netlify/functions/fetch-cedd", {
         cache: "no-store"
     });
 
