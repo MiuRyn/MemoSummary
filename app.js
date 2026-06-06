@@ -8,7 +8,7 @@ import {
 import { getFirestore } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
 import { firebaseConfig } from "./firebase-config.js";
-import { getStoredOpenAIApiKey, requestOpenAIApiKey, generateTwoSentenceMemoSummary } from "./ai-summary.js";
+import { getStoredOpenAIApiKey, requestOpenAIApiKey, generateTwoSentenceMemoSummary, generateMemoSummaryWithGemini } from "./ai-summary.js";
 import { cleanText, formatMemoDate, showToast } from "./utils.js";
 import { filterMemos } from "./search.js";
 import {
@@ -745,13 +745,41 @@ if (generateAiSummaryBtn) {
         generateAiSummaryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Generating';
 
         try {
-            const summary = await generateTwoSentenceMemoSummary({
-                apiKey,
-                memoDraft: getMemoDraftFromFormForAi()
-            });
+            const memoDraft = getMemoDraftFromFormForAi();
+            const aiResult = await generateMemoSummaryWithGemini(memoDraft);
+            const summary = typeof aiResult === "string" ? aiResult : (aiResult.summary || "");
 
-            document.getElementById("memoApplication").value = summary;
-            showToast("AI summary generated");
+            if (summary) {
+                document.getElementById("memoApplication").value = summary;
+            }
+
+            let filledFields = 0;
+            const memoRefInput = document.getElementById("memoRef");
+            const memoDateInput = document.getElementById("memoDate");
+            const memoTopicInput = document.getElementById("memoTopic");
+
+            if (typeof aiResult === "object" && aiResult) {
+                if (!cleanText(memoRefInput.value) && cleanText(aiResult.ref || "")) {
+                    memoRefInput.value = aiResult.ref;
+                    filledFields++;
+                }
+
+                if (!cleanText(memoDateInput.value) && cleanText(aiResult.date || "")) {
+                    memoDateInput.value = aiResult.date;
+                    filledFields++;
+                }
+
+                if (!cleanText(memoTopicInput.value) && cleanText(aiResult.topic || "")) {
+                    memoTopicInput.value = aiResult.topic;
+                    filledFields++;
+                }
+            }
+
+            showToast(
+                filledFields
+                    ? `AI summary generated and ${filledFields} blank field(s) filled`
+                    : "AI summary generated"
+            );
         } catch (error) {
             console.error(error);
             showToast(error.message || "Failed to generate AI summary", "error");
