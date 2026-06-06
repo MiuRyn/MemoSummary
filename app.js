@@ -4,7 +4,7 @@
         import { isLocalFileLink, localFileLinkToCopyPath, copyTextToClipboard } from "./local-file-links.js";
         import { generateMemoSummaryWithGemini } from "./ai-summary.js";
         import { loadCEDDMemos } from "./cedd-importer.js";
-		import { importDEVBMemos } from "./devb-importer.js";
+		import { loadDEVBItems, getMemoRefDateDuplicateKey, isImportableDEVBRecord, normalizeDEVBItem } from "./devb-importer.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCtQbVm91_lsmzz2XcX60bhUCYH0CjRb_E",
@@ -45,6 +45,7 @@
         const catList = document.getElementById('catList');
         const memoCategorySelect = document.getElementById('memoCategory');
         const importInput = document.getElementById('importInput');
+        const excelImportInput = document.getElementById('excelImportInput');
         const memoPdfInput = document.getElementById('memoPdfInput');
         const memoPdfData = document.getElementById('memoPdfData');
         const pdfUploadStatus = document.getElementById('pdfUploadStatus');
@@ -53,6 +54,7 @@
         const generateSummaryBtn = document.getElementById('generateSummaryBtn');
         const dateSortBtn = document.getElementById('dateSortBtn');
         const dateSortIcon = document.getElementById('dateSortIcon');
+
 
         function showToast(message, type = "success") {
             const toast = document.getElementById('toast');
@@ -692,25 +694,426 @@
         const closeCatModalButton = document.getElementById('closeCatModalBtn');
         if (closeCatModalButton) closeCatModalButton.onclick = () => catModal.classList.add('hidden');
 
+//import excel memos
+       function getExcelCellString(value) {
+            if (value === null || value === undefined) return "";
+            if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                const year = value.getFullYear();
+                const month = String(value.getMonth() + 1).padStart(2, "0");
+                const day = String(value.getDate()).padStart(2, "0");
+                return `${year}-${month}-${day}`;
+            }
+            return cleanText(String(value));
+        }
 
-        const importDevbButton = document.getElementById("importDevbBtn");
-        if (importDevbButton) importDevbButton.onclick = importDEVBMemos;
+        function normalizeExcelHeader(value) {
+            return getExcelCellString(value)
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, "");
+        }
 
-        const exportButton = document.getElementById('exportBtn');
-        if (exportButton) {
-            exportButton.onclick = () => {
-                const blob = new Blob([JSON.stringify(memos, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'tender_memos.json';
-                a.click();
+        function findExcelColumnIndex(headers, aliases) {
+            const normalizedAliases = aliases.map(normalizeExcelHeader);
+            return headers.findIndex(header => normalizedAliases.includes(normalizeExcelHeader(header)));
+        }
+
+        function excelSerialDateToISODate(serial) {
+            const serialNumber = Number(serial);
+
+            if (!Number.isFinite(serialNumber) || serialNumber <= 0) return "";
+
+            const utcDays = Math.floor(serialNumber - 25569);
+            const utcValue = utcDays * 86400;
+            const date = new Date(utcValue * 1000);
+
+            if (Number.isNaN(date.getTime())) return "";
+
+            const year = date.getUTCFullYear();
+            const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+            const day = String(date.getUTCDate()).padStart(2, "0");
+
+            return `${year}-${month}-${day}`;
+        }
+
+        function normalizeExcelMemoDate(value) {
+            if (value === null || value === undefined || value === "") return "";
+
+            if (value instanceof Date && !Number.isNaN(value.getTime())) {
+                const year = value.getFullYear();
+                const month = String(value.getMonth() + 1).padStart(2, "0");
+                const day = String(value.getDate()).padStart(2, "0");
+                return `${year}-${month}-${day}`;
+            }
+
+            if (typeof value === "number") {
+                return excelSerialDateToISODate(value);
+            }
+
+            const raw = cleanText(String(value));
+            if (!raw) return "";
+
+            if (/^\d+(\.\d+)?$/.test(raw)) {
+                const serialDate = excelSerialDateToISODate(raw);
+                if (serialDate) return serialDate;
+            }
+
+            const isoMatch = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+            if (isoMatch) {
+                return `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
+            }
+
+            const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (slashMatch) {
+                const day = slashMatch[1].padStart(2, "0");
+                const month = slashMatch[2].padStart(2, "0");
+                const year = slashMatch[3];
+                return `${year}-${month}-${day}`;
+            }
+
+            const parsed = new Date(raw);
+            if (!Number.isNaN(parsed.getTime()) && /\d{4}/.test(raw)) {
+                const year = parsed.getFullYear();
+                const month = String(parsed.getMonth() + 1).padStart(2, "0");
+                const day = String(parsed.getDate()).padStart(2, "0");
+                return `${year}-${month}-${day}`;
+            }
+
+            return raw;
+        }
+
+        function createStableExcelMemoId(ref, topic, date, url) {
+            const key = `${ref || ""}|${topic || ""}|${date || ""}|${url || ""}`;
+            return `excel-${btoa(unescape(encodeURIComponent(key))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 40) || Date.now()}`;
+        }
+
+        function parseExcelMemoWorksheet(workbook) {
+            const firstSheetName = workbook.SheetNames[0];
+
+            if (!firstSheetName) {
+                throw new Error("The Excel file does not contain any worksheets.");
+            }
+
+            const worksheet = workbook.Sheets[firstSheetName];
+            const rows = XLSX.utils.sheet_to_json(worksheet, {
+                header: 1,
+                defval: "",
+                raw: true,
+                blankrows: false
+            });
+
+            if (!rows.length) {
+                throw new Error("The first worksheet is empty.");
+            }
+
+            const headerRowIndex = rows.findIndex(row => {
+                const normalized = row.map(normalizeExcelHeader);
+                return normalized.includes("title") && normalized.includes("url");
+            });
+
+            if (headerRowIndex === -1) {
+                throw new Error("Could not find the Excel header row. Expected columns: Ref, Title, Date, Url.");
+            }
+
+            const headers = rows[headerRowIndex];
+            const refIndex = findExcelColumnIndex(headers, ["Ref", "Reference", "Memo Ref", "Circular No"]);
+            const titleIndex = findExcelColumnIndex(headers, ["Title", "Topic", "Memo Title", "Subject"]);
+            const dateIndex = findExcelColumnIndex(headers, ["Date", "Issue Date", "Memo Date"]);
+            const urlIndex = findExcelColumnIndex(headers, ["Url", "URL", "Link", "File", "Path"]);
+
+            if (titleIndex === -1 || urlIndex === -1) {
+                throw new Error("The Excel file must include at least Title and Url columns.");
+            }
+
+            const importedMemos = [];
+
+            for (let rowIndex = headerRowIndex + 1; rowIndex < rows.length; rowIndex++) {
+                const row = rows[rowIndex] || [];
+                const ref = refIndex >= 0 ? getExcelCellString(row[refIndex]) : "";
+                const topic = getExcelCellString(row[titleIndex]);
+                const date = dateIndex >= 0 ? normalizeExcelMemoDate(row[dateIndex]) : "";
+                const url = getExcelCellString(row[urlIndex]);
+
+                if (!ref && !topic && !date && !url) continue;
+                if (!topic || !url) continue;
+
+                importedMemos.push({
+                    id: createStableExcelMemoId(ref, topic, date, url),
+                    ref,
+                    date,
+                    topic,
+                    url,
+                    category: categories.includes("Technical Specifications") ? "Technical Specifications" : (categories[0] || "General"),
+                    conditions: "",
+                    application: "",
+                    pdfData: "",
+                    source: "Excel Import"
+                });
+            }
+
+            return dedupeMemosByUrlRefId(importedMemos);
+        }
+
+
+async function parseExcelMemoFile(file) {
+            if (!window.XLSX) {
+                throw new Error("Excel parser failed to load. Check your internet connection and refresh the admin page.");
+            }
+
+            const buffer = await file.arrayBuffer();
+            const workbook = XLSX.read(buffer, {
+                type: "array",
+                cellDates: true
+            });
+
+            return parseExcelMemoWorksheet(workbook);
+        }
+
+ async function importExcelMemos() {
+            const importExcelBtn = document.getElementById("importMenuBtn");
+            const originalText = importExcelBtn ? importExcelBtn.innerHTML : "";
+            const file = excelImportInput && excelImportInput.files ? excelImportInput.files[0] : null;
+
+            if (!file) return;
+
+            try {
+                if (importExcelBtn) {
+                    importExcelBtn.disabled = true;
+                    importExcelBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing';
+                }
+
+                showToast("Reading Excel memo records...");
+
+                const importedMemos = await parseExcelMemoFile(file);
+
+                if (!importedMemos.length) {
+                    throw new Error("No valid memo rows found. Each row needs at least Title and Url.");
+                }
+
+                const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
+                const newCount = importedMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
+                const updatedCount = importedMemos.length - newCount;
+                const urlMemos = importedMemos.filter(memo => cleanText(memo.url || ""));
+                const nonUrlMemos = importedMemos.filter(memo => !cleanText(memo.url || ""));
+
+                if (urlMemos.length) {
+                    const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
+                    const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...urlMemos]);
+                    await overwriteUrlMemoChunks(mergedUrlMemos);
+                    await cleanupIndividualUrlDocuments(urlMemos);
+                }
+
+                for (const memo of nonUrlMemos) {
+                    await setDoc(doc(db, "memos", memo.id), memo);
+                }
+
+                if (!categories.includes("Technical Specifications")) {
+                    categories.push("Technical Specifications");
+                    saveCats();
+                    renderCategoryTools();
+                }
+
+                excelImportInput.value = "";
+                await loadMemos();
+                showToast(`Excel import complete: ${newCount} new, ${updatedCount} updated`);
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || "Failed to import Excel file", "error");
+            } finally {
+                if (importExcelBtn) {
+                    importExcelBtn.disabled = false;
+                    importExcelBtn.innerHTML = originalText;
+                }
+            }
+        }
+
+//import memo from devb webpage        
+        async function importDEVBMemos() {
+            const importDevbBtn = document.getElementById("importMenuBtn");
+            const originalText = importDevbBtn ? importDevbBtn.innerHTML : "";
+
+            try {
+                if (importDevbBtn) {
+                    importDevbBtn.disabled = true;
+                    importDevbBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing';
+                }
+
+                showToast("Importing DEVB circulars...");
+
+                const rawItems = await loadDEVBItems();
+
+                if (!Array.isArray(rawItems)) {
+                    throw new Error("DEVB circular data was found, but it is not an array.");
+                }
+
+                const circularRecords = rawItems.filter(isImportableDEVBRecord);
+
+                let importedMemos = circularRecords
+                    .map(normalizeDEVBItem)
+                    .filter(item => item.ref && item.topic && item.url);
+
+                if (!importedMemos.length) {
+                    console.warn("No importable DEVB records found. First raw item sample:", rawItems[0]);
+                    throw new Error(`No valid DEVB circulars parsed. Found ${rawItems.length} raw items. Check Console for first sample.`);
+                }
+
+
+                    const existingKeys = new Set(
+                    memos.map(getUrlMemoKey).filter(Boolean)
+                );
+
+                const newCount = importedMemos.filter(
+                    memo => !existingKeys.has(getUrlMemoKey(memo))
+                ).length;
+
+                const updatedCount = importedMemos.length - newCount;
+
+                const existingRefDateKeys = new Set(
+                    memos
+                        .map(memo => getMemoRefDateDuplicateKey(memo))
+                        .filter(Boolean)
+                );
+
+                const incomingRefDateKeys = new Set();
+                const newImportedMemos = [];
+
+                for (const importedMemo of importedMemos) {
+                    const duplicateKey = getMemoRefDateDuplicateKey(importedMemo);
+                  
+                    
+                    if (!duplicateKey) continue;
+                    if (existingRefDateKeys.has(duplicateKey)) continue;
+                    if (incomingRefDateKeys.has(duplicateKey)) continue;
+
+                    incomingRefDateKeys.add(duplicateKey);
+                    newImportedMemos.push(importedMemo);
+                }
+
+                if (!newImportedMemos.length) {
+                    await loadMemos();
+                    showToast(`DEVB import complete: 0 new, ${importedMemos.length} skipped as existing ref/date matches`);
+                    return;
+                }
+
+                const newCount = newImportedMemos.length;
+				const updatedCount = 0;
+                const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
+                const mergedUrlMemos = dedupeMemosByUrlRefId([
+                            ...existingUrlMemos,
+                            ...newImportedMemos
+                ]);
+
+                await overwriteUrlMemoChunks(mergedUrlMemos);
+                const cleanedCount = await cleanupIndividualUrlDocuments(importedMemos);
+
+                await loadMemos();
+                showToast(`DEVB import complete: ${newCount} new, ${updatedCount} updated, ${cleanedCount} old individual docs removed`);
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || "Failed to import DEVB circulars", "error");
+            } finally {
+                if (importDevbBtn) {
+                    importDevbBtn.disabled = false;
+                    importDevbBtn.innerHTML = originalText;
+                }
+            }
+        }
+
+
+// import CEDD memo
+        async function importCEDDMemos() {
+            const importMenuBtn = document.getElementById("importMenuBtn");
+            const originalText = importMenuBtn ? importMenuBtn.innerHTML : "";
+
+            try {
+                if (importMenuBtn) {
+                    importMenuBtn.disabled = true;
+                    importMenuBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing CEDD';
+                }
+
+                showToast("Importing CEDD technical circulars...");
+
+                const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
+                const { mergedMemos, changedMemos } = await loadCEDDMemos(memos);
+
+                if (!changedMemos.length) {
+                    await loadMemos();
+                    showToast("CEDD import complete: no new or updated records");
+                    return;
+                }
+
+                const changedUrlMemos = changedMemos.filter(memo => cleanText(memo.url || ""));
+                const mergedUrlMemos = mergedMemos.filter(memo => cleanText(memo.url || ""));
+                const newCount = changedUrlMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
+                const updatedCount = changedUrlMemos.length - newCount;
+
+                await overwriteUrlMemoChunks(mergedUrlMemos);
+                const cleanedCount = await cleanupIndividualUrlDocuments(changedUrlMemos);
+
+                await loadMemos();
+                showToast(`CEDD import complete: ${newCount} new, ${updatedCount} updated, ${cleanedCount} old individual docs removed`);
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || "Failed to import CEDD circulars", "error");
+            } finally {
+                if (importMenuBtn) {
+                    importMenuBtn.disabled = false;
+                    importMenuBtn.innerHTML = originalText;
+                }
+            }
+        }
+
+        const importMenuBtn = document.getElementById("importMenuBtn");
+        const importMenu = document.getElementById("importMenu");
+        const importMenuWrap = document.getElementById("importMenuWrap");
+
+        if (importMenuBtn && importMenu && importMenuWrap) {
+            importMenuBtn.onclick = () => importMenu.classList.toggle("hidden");
+
+            document.addEventListener("click", (event) => {
+                if (!importMenuWrap.contains(event.target)) {
+                    importMenu.classList.add("hidden");
+                }
+            });
+        }
+
+        const closeImportMenu = () => {
+            if (importMenu) importMenu.classList.add("hidden");
+        };
+
+        const importDevbMenuButton = document.getElementById("importDevbMenuBtn");
+        if (importDevbMenuButton) {
+            importDevbMenuButton.onclick = () => {
+                closeImportMenu();
+                importDEVBMemos();
             };
         }
 
-        const importButton = document.getElementById('importBtn');
-        if (importButton && importInput) {
-            importButton.onclick = () => importInput.click();
+        const importExcelMenuButton = document.getElementById("importExcelMenuBtn");
+        if (importExcelMenuButton && excelImportInput) {
+            importExcelMenuButton.onclick = () => {
+                closeImportMenu();
+                excelImportInput.click();
+            };
+            excelImportInput.onchange = importExcelMemos;
+        }
+
+        const importCeddMenuButton = document.getElementById("importCeddMenuBtn");
+        if (importCeddMenuButton) {
+            importCeddMenuButton.onclick = () => {
+                closeImportMenu();
+                importCEDDMemos();
+            };
+        }
+
+        const importJsonMenuButton = document.getElementById("importJsonMenuBtn");
+        if (importJsonMenuButton && importInput) {
+            importJsonMenuButton.onclick = () => {
+                closeImportMenu();
+                importInput.click();
+            };
+        }
+
+        if (importInput) {
             importInput.onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -728,11 +1131,25 @@
                     }
                 } catch (err) {
                     showToast("Failed to import file", "error");
+                } finally {
+                    importInput.value = "";
                 }
             };
             reader.readAsText(file);
             };
         }
+
+        const exportButton = document.getElementById('exportBtn');
+        if (exportButton) {
+            exportButton.onclick = () => {
+                const blob = new Blob([JSON.stringify(memos, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'tender_memos.json';
+                a.click();
+			};
+		}
 
         const handleFilterChange = () => {
             window.currentPage = 1;
