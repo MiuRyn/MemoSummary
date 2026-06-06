@@ -1,4 +1,7 @@
 exports.handler = async function (event) {
+
+    console.log("GEMINI:", !!process.env.GEMINI_API_KEY);
+    
     try {
         if (event.httpMethod !== "POST") {
             return json(405, { error: "Method not allowed" });
