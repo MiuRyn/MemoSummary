@@ -667,7 +667,20 @@
             const memoDateInput = document.getElementById('memoDate');
             const memoTopicInput = document.getElementById('memoTopic');
             const memoApplicationInput = document.getElementById('memoApplication');
-            
+//add guard to prevent overload of ai
+            if (
+                cleanText(memoRefInput.value) &&
+                cleanText(memoDateInput.value) &&
+                cleanText(memoTopicInput.value) &&
+                cleanText(memoApplicationInput.value)
+            ) {
+                showToast(
+                    "Record already contains metadata and description.",
+                    "info"
+                );
+                return;
+            }
+///end of guard            
             try {
                 generateSummaryBtn.disabled = true;
                 generateSummaryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Generating</span>';
