@@ -1,6 +1,11 @@
 exports.handler = async function (event) {
 
     console.log("GEMINI:", !!process.env.GEMINI_API_KEY);
+    if (!process.env.GEMINI_API_KEY) {
+    return json(500, {
+        error: "GEMINI_API_KEY environment variable is missing"
+        });
+    }
     
     try {
         if (event.httpMethod !== "POST") {
@@ -18,14 +23,35 @@ exports.handler = async function (event) {
                 "User-Agent": "Mozilla/5.0 MemoSummaryBot/1.0"
             }
         });
+// add pdf size cap
+if (!pdfResponse.ok) {
+    return json(400, {
+        error: `Unable to fetch URL. HTTP ${pdfResponse.status}`
+    });
+}
 
-        if (!pdfResponse.ok) {
-            return json(400, { error: `Unable to fetch URL. HTTP ${pdfResponse.status}` });
-        }
+const contentLength = Number(
+    pdfResponse.headers.get("content-length") || 0
+);
 
-        const contentType = pdfResponse.headers.get("content-type") || "application/pdf";
-        const arrayBuffer = await pdfResponse.arrayBuffer();
-        const base64Data = Buffer.from(arrayBuffer).toString("base64");
+if (contentLength > 15 * 1024 * 1024) {
+    return json(400, {
+        error: "PDF exceeds 15MB limit"
+    });
+}
+
+const contentType =
+    pdfResponse.headers.get("content-type") || "application/pdf";
+
+const arrayBuffer = await pdfResponse.arrayBuffer();
+
+if (arrayBuffer.byteLength > 15 * 1024 * 1024) {
+    return json(400, {
+        error: "PDF exceeds 15MB limit"
+    });
+}
+
+const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
         const geminiResponse = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
