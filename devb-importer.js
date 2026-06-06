@@ -60,13 +60,17 @@ export function normalizeDEVBItem(item) {
     };
 }
 
+function isCircularRecord(value) {
+    return isImportableDEVBRecord(value);
+}
+
+
 function getCircularRecordKey(item) {
     const circularNumber = cleanText(item && item.CircularNumber || "");
     const title = cleanText(item && item.Title || "");
     const files = Array.isArray(item && item.Files)
         ? item.Files.map(filePath => cleanText(filePath || "")).join("|")
         : "";
-
     return `${circularNumber}::${title}::${files}`;
 }
 
@@ -74,13 +78,11 @@ function collectCircularRecords(value, output = [], visited = new Set(), depth =
     if (!value || depth > 8) return output;
 
     const valueType = typeof value;
-
     if (valueType !== "object" && valueType !== "function") return output;
     if (visited.has(value)) return output;
-
     visited.add(value);
 
-    if (isImportableDEVBRecord(value)) {
+    if (isCircularRecord(value)) {
         output.push(value);
         return output;
     }
@@ -110,9 +112,7 @@ function dedupeCircularRecords(records) {
 
     for (const record of records) {
         const key = getCircularRecordKey(record);
-
         if (!key || seen.has(key)) continue;
-
         seen.add(key);
         unique.push(record);
     }
@@ -125,7 +125,6 @@ async function loadDEVBItemsViaScriptTag() {
 
     await new Promise((resolve, reject) => {
         const existingScript = document.querySelector('script[data-devb-importer="true"]');
-
         if (existingScript) existingScript.remove();
 
         const script = document.createElement("script");
@@ -175,11 +174,8 @@ async function fetchDEVBDataJsText() {
     for (const url of urls) {
         try {
             const response = await fetch(url, { cache: "no-store" });
-
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
             const text = await response.text();
-
             if (text && text.includes("CircularNumber")) return text;
         } catch (error) {
             lastError = error;
@@ -262,12 +258,10 @@ function parseDEVBDataJsText(jsText) {
         for (const objectText of objectMatches) {
             try {
                 const parsed = JSON.parse(objectText);
-
                 if (isImportableDEVBRecord(parsed)) allRecords.push(parsed);
             } catch {
                 try {
                     const parsed = Function(`"use strict"; return (${objectText});`)();
-
                     if (isImportableDEVBRecord(parsed)) allRecords.push(parsed);
                 } catch {
                     continue;
@@ -294,4 +288,128 @@ export async function loadDEVBItems() {
         const jsText = await fetchDEVBDataJsText();
         return parseDEVBDataJsText(jsText);
     }
+}
+
+export function normalizeMemoRefForDuplicateCheck(value) {
+            return cleanText(value || "")
+                .toUpperCase()
+                .replace(/^TC\s*\(?W\)?\s*NO\.?\s*/i, "")
+                .replace(/^TCW\s*NO\.?\s*/i, "")
+                .replace(/\s+/g, "")
+                .replace(/[.]/g, "");
+        }
+
+export function normalizeMemoDateForDuplicateCheck(value) {
+            const raw = cleanText(value || "");
+
+            if (!raw) return "";
+
+            const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+            if (isoMatch) {
+                return `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
+            }
+
+            const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (slashMatch) {
+                const day = slashMatch[1].padStart(2, "0");
+                const month = slashMatch[2].padStart(2, "0");
+                const year = slashMatch[3];
+
+                return `${year}-${month}-${day}`;
+            }
+
+            const parsed = new Date(raw);
+            if (!Number.isNaN(parsed.getTime())) {
+                const year = parsed.getFullYear();
+                const month = String(parsed.getMonth() + 1).padStart(2, "0");
+                const day = String(parsed.getDate()).padStart(2, "0");
+
+                return `${year}-${month}-${day}`;
+            }
+
+            return raw.toUpperCase();
+        }
+
+export function getMemoRefDateDuplicateKey(memo) {
+        const normalizedRef = normalizeMemoRefForDuplicateCheck(memo && memo.ref);
+        const normalizedDate = normalizeMemoDateForDuplicateCheck(memo && memo.date);
+
+        if (!normalizedRef || !normalizedDate) return "";
+
+        return `${normalizedRef}::${normalizedDate}`;
+}
+
+export async function importDEVBMemos() {
+            const importDevbBtn = document.getElementById("importDevbBtn");
+            const originalText = importDevbBtn ? importDevbBtn.innerHTML : "";
+
+            try {
+                if (importDevbBtn) {
+                    importDevbBtn.disabled = true;
+                    importDevbBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing';
+                }
+
+                showToast("Importing DEVB circulars...");
+
+                const rawItems = await loadDEVBItems();
+
+                if (!Array.isArray(rawItems)) {
+                    throw new Error("DEVB circular data was found, but it is not an array.");
+                }
+
+                const circularRecords = rawItems.filter(isImportableDEVBRecord);
+
+                let importedMemos = circularRecords
+                    .map(normalizeDEVBItem)
+                    .filter(item => item.ref && item.topic && item.url);
+
+                if (!importedMemos.length) {
+                    console.warn("No importable DEVB records found. First raw item sample:", rawItems[0]);
+                    throw new Error(`No valid DEVB circulars parsed. Found ${rawItems.length} raw items. Check Console for first sample.`);
+                }
+
+                const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
+                const newCount = importedMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
+                const updatedCount = importedMemos.length - newCount;
+
+                const incomingRefDateKeys = new Set();
+                const newImportedMemos = [];
+								const existingRefDateKeys = new Set(
+								  memos
+								    .map(getMemoRefDateDuplicateKey)
+								    .filter(Boolean)
+								);
+                for (const importedMemo of importedMemos) {
+                    const duplicateKey = getMemoRefDateDuplicateKey(importedMemo);
+
+                    if (!duplicateKey) continue;
+                    if (existingRefDateKeys.has(duplicateKey)) continue;
+                    if (incomingRefDateKeys.has(duplicateKey)) continue;
+
+                    incomingRefDateKeys.add(duplicateKey);
+                    newImportedMemos.push(importedMemo);
+                }
+
+                if (!newImportedMemos.length) {
+                    await loadMemos();
+                    showToast(`DEVB import complete: 0 new, ${importedMemos.length} skipped as existing ref/date matches`);
+                    return;
+                }
+                const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
+                const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...importedMemos]);
+
+                await overwriteUrlMemoChunks(mergedUrlMemos);
+                const cleanedCount = await cleanupIndividualUrlDocuments(importedMemos);
+
+                await loadMemos();
+                showToast(`DEVB import complete: ${newCount} new, ${updatedCount} updated, ${cleanedCount} old individual docs removed`);
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || "Failed to import DEVB circulars", "error");
+            } finally {
+                if (importDevbBtn) {
+                    importDevbBtn.disabled = false;
+                    importDevbBtn.innerHTML = originalText;
+                }
+            }
 }
