@@ -1,32 +1,3 @@
-const GEMINI_API_KEY_STORAGE_KEY = "memo_directory_gemini_api_key";
-const GEMINI_MODEL_STORAGE_KEY = "memo_directory_gemini_model";
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
-const GEMINI_GENERATE_CONTENT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
-
-export function getGeminiApiKey() {
-    return localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY) || "";
-}
-
-export function saveGeminiApiKey(apiKey) {
-    const cleanKey = (apiKey || "").trim();
-
-    if (cleanKey) {
-        localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, cleanKey);
-    }
-}
-
-export function getGeminiModel() {
-    return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || DEFAULT_GEMINI_MODEL;
-}
-
-export function saveGeminiModel(model) {
-    const cleanModel = (model || "").trim();
-
-    if (cleanModel) {
-        localStorage.setItem(GEMINI_MODEL_STORAGE_KEY, cleanModel);
-    }
-}
-
 export async function generateMemoSummaryWithGemini(memoInput) {
     const {
         url = "",
@@ -35,296 +6,74 @@ export async function generateMemoSummaryWithGemini(memoInput) {
         topic = ""
     } = memoInput || {};
 
-    if (url && !pdfData) {
+    if (pdfData && pdfData.startsWith("data:")) {
+        return await summarizeUploadedPdfWithNetlifyFunction({
+            pdfData,
+            ref,
+            topic
+        });
+    }
+
+    if (url && /^https?:\/\//i.test(url)) {
         return await summarizeExternalUrlWithNetlifyFunction({
             url,
             ref,
             topic
         });
     }
-    const apiKey = getOrPromptForGeminiApiKey();
-    const model = getGeminiModel();
-    const parts = await buildGeminiParts(memoInput);
 
-    const response = await fetch(
-        `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                contents: [
-                    {
-                        role: "user",
-                        parts
-                    }
-                ],
-                generationConfig: {
-                    temperature: 0.1,
-                    maxOutputTokens: 1000
-                }
-            })
-        }
-    );
+    throw new Error("Please provide an uploaded PDF or a valid external URL.");
+}
+
+async function summarizeExternalUrlWithNetlifyFunction({ url, ref, topic }) {
+    const response = await fetch("/.netlify/functions/summarize-url", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            url,
+            ref,
+            topic
+        })
+    });
 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new Error(formatGeminiError(response.status, data));
+        throw new Error(data.error || "Failed to summarize external URL");
     }
 
-    const summary = extractGeminiText(data);
-
-    if (!summary) {
-        throw new Error("Gemini returned no summary text.");
-    }
-
-    return cleanText(summary)
-    .replace(/\n/g, " ")
-    .replace(/\s*;\s*/g, "; ")
-    .replace(/\.$/, "");
+    return cleanSummary(data.summary);
 }
 
-function getOrPromptForGeminiApiKey() {
-    let apiKey = getGeminiApiKey();
-
-    if (!apiKey) {
-        apiKey = window.prompt("Enter your Gemini API key. It will be saved only in this browser:");
-
-        if (!apiKey || !apiKey.trim()) {
-            throw new Error("Gemini API key is required.");
-        }
-
-        saveGeminiApiKey(apiKey);
-    }
-
-    return apiKey.trim();
-}
-
-async function summarizeExternalUrlWithNetlifyFunction({
-    url,
-    ref,
-    topic
-}) {
-    const response = await fetch(
-        "/.netlify/functions/summarize-url",
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                url,
-                ref,
-                topic
-            })
-        }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-        throw new Error(
-            data.error || "Failed to summarize external URL"
-        );
-    }
-
-    return data.summary;
-}
-
-async function buildGeminiParts(memoInput) {
-    const {
-        ref = "",
-        date = "",
-        topic = "",
-        conditions = "",
-        application = "",
-        url = "",
-        pdfData = ""
-    } = memoInput || {};
-
-const prompt = `
-Extract 3 to 5 important key phrases from the document.
-Format requirements:
-- Separate each phrase with a semicolon (;).
-- Do not use sentences.
-- Do not truncate phrases.
-- If a phrase is long, keep it complete.
-`;
-    
-    const parts = [{ text: prompt }];
-    console.log("Gemini prompt created");
-    console.log("PDF attached:", !!pdfData);
-    console.log("URL attached:", url);
-    
-    if (pdfData && pdfData.startsWith("data:")) {
-        const inlinePdfPart = dataUrlToGeminiInlinePart(pdfData);
-
-        if (inlinePdfPart) {
-            parts.push(inlinePdfPart);
-            return parts;
-        }
-    }
-
-    return parts;
-}
-
-function dataUrlToGeminiInlinePart(dataUrl) {
-    const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
-
-    if (!match) return null;
-
-    const mimeType = match[1];
-    const base64Data = match[2];
-
-    return {
-        inline_data: {
-            mime_type: mimeType,
-            data: base64Data
-        }
-    };
-}
-
-
-
-function htmlToReadableText(text) {
-    const raw = text || "";
-
-    if (/<html|<body|<div|<p|<table/i.test(raw)) {
-        const doc = new DOMParser().parseFromString(raw, "text/html");
-
-        doc.querySelectorAll("script, style, nav, header, footer").forEach((node) => node.remove());
-
-        return cleanText(doc.body?.textContent || raw);
-    }
-
-    return cleanText(raw);
-}
-
-function arrayBufferToBase64(buffer) {
-    const bytes = new Uint8Array(buffer);
-    const chunkSize = 0x8000;
-    let binary = "";
-
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-    }
-
-    return btoa(binary);
-}
-
-function extractGeminiText(data) {
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  // 僅加入基本清理，移除換行符與多餘空格，不移除括號數字，避免誤刪
-  return parts
-    .map(p => p.text)
-    .join(" ")
-    .replace(/\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function forceTwoSentenceLimit(text) {
-    const clean = cleanText(text);
-    const sentences = clean.match(/[^.!?]+[.!?]+/g);
-
-    if (!sentences || sentences.length <= 2) {
-        return clean;
-    }
-
-    return sentences.slice(0, 2).join(" ").trim();
-}
-
-async function ensureTwoSentenceSummary(summary, originalParts, apiKey, model) {
-    const cleanSummary = cleanText(summary);
-    const wordCount = cleanSummary.split(/\s+/).filter(Boolean).length;
-
-    if (wordCount >= 35) {
-        return forceTwoSentenceLimit(cleanSummary);
-    }
-
-    const retryPrompt = `
-Your previous answer was too short: "${cleanSummary}"
-
-Rewrite it as exactly TWO complete sentences.
-Each sentence must contain 20 to 35 words.
-Base the answer primarily on the attached PDF or document content.
-Do not use headings, bullets, or a title.
-Do not answer with fewer than 40 total words.
-`;
-
-    const retryParts = [
-        { text: retryPrompt },
-        ...originalParts.slice(1)
-    ];
-
-    const response = await fetch(
-        `${GEMINI_GENERATE_CONTENT_BASE_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                contents: [
-                    {
-                        role: "user",
-                        parts: retryParts
-                    }
-                ],
-                generationConfig: {
-                    temperature: 0.1,
-                    maxOutputTokens: 1000
-                }
-            })
-        }
-    );
+async function summarizeUploadedPdfWithNetlifyFunction({ pdfData, ref, topic }) {
+    const response = await fetch("/.netlify/functions/summarize-pdf", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            pdfData,
+            ref,
+            topic
+        })
+    });
 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new Error(formatGeminiError(response.status, data));
+        throw new Error(data.error || "Failed to summarize uploaded PDF");
     }
 
-    const retrySummary = extractGeminiText(data);
-
-    if (!retrySummary) {
-        throw new Error("Gemini returned no summary text.");
-    }
-
-    return forceTwoSentenceLimit(retrySummary);
-}
-// 在返回結果前增加一個截斷修正
-function sanitizeOutput(text) {
-  // 如果最後一個句子沒有標點符號，自動加上
-  if (text.length > 0 && !/[.!?]$/.test(text)) {
-    return text.substring(0, text.lastIndexOf(' ')) + ".";
-  }
-  return text;
+    return cleanSummary(data.summary);
 }
 
-function formatGeminiError(status, data) {
-    const message =
-        data?.error?.message ||
-        data?.message ||
-        "Unknown Gemini API error.";
-
-    if (status === 400) {
-        return `Gemini request failed: bad request. ${message}`;
-    }
-
-    if (status === 401 || status === 403) {
-        return `Gemini request failed: API key is invalid or not allowed. ${message}`;
-    }
-
-    if (status === 429) {
-        return `Gemini request failed: quota or rate limit exceeded. ${message}`;
-    }
-
-    return `Gemini request failed: HTTP ${status}. ${message}`;
-}
-
-function cleanText(value) {
-    return (value || "").replace(/\s+/g, " ").trim();
+function cleanSummary(value) {
+    return (value || "")
+        .replace(/\n/g, " ")
+        .replace(/\s+/g, " ")
+        .replace(/\s*;\s*/g, "; ")
+        .replace(/\.$/, "")
+        .trim();
 }
