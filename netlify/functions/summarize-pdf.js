@@ -154,11 +154,13 @@ function parseGeminiJsonResult(text) {
         };
     }
 
+    const summaryObject = parsed.summary && typeof parsed.summary === "object" ? parsed.summary : null;
+
     const result = {
-        summary: cleanSummary(parsed.summary || ""),
-        ref: cleanText(parsed.ref || ""),
-        date: normalizeDateForInput(parsed.date || ""),
-        topic: cleanText(parsed.topic || "")
+        summary: cleanSummary(summaryObject?.summary ?? summaryObject?.text ?? parsed.summary ?? ""),
+        ref: cleanText(parsed.ref ?? summaryObject?.ref ?? ""),
+        date: normalizeDateForInput(parsed.date ?? summaryObject?.date ?? ""),
+        topic: cleanText(parsed.topic ?? summaryObject?.topic ?? "")
     };
 
     return {
@@ -207,7 +209,14 @@ function cleanSummary(value) {
 }
 
 function cleanText(value) {
-    return (value || "").replace(/\s+/g, " ").trim();
+    if (value === null || value === undefined) return "";
+    if (typeof value === "object") {
+        if (typeof value.summary === "string") return cleanText(value.summary);
+        if (typeof value.text === "string") return cleanText(value.text);
+        return "";
+    }
+
+    return String(value).replace(/\s+/g, " ").trim();
 }
 
 function json(statusCode, body) {
