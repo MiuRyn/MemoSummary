@@ -74,7 +74,7 @@ async function generateGeminiSummaryAndMetadata({ mimeType, base64Data, ref, dat
                 ],
                 generationConfig: {
                     temperature: 0.1,
-                    maxOutputTokens: 1200
+                    maxOutputTokens: 1400
                 }
             })
         }
