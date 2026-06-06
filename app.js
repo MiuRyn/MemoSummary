@@ -894,7 +894,8 @@ async function parseExcelMemoFile(file) {
                 const updatedCount = importedMemos.length - newCount;
                 const urlMemos = importedMemos.filter(memo => cleanText(memo.url || ""));
                 const nonUrlMemos = importedMemos.filter(memo => !cleanText(memo.url || ""));
-
+				
+				
                 if (urlMemos.length) {
                     const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
                     const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...urlMemos]);
@@ -961,11 +962,11 @@ async function parseExcelMemoFile(file) {
                     memos.map(getUrlMemoKey).filter(Boolean)
                 );
 
-                const newCount = importedMemos.filter(
-                    memo => !existingKeys.has(getUrlMemoKey(memo))
-                ).length;
-
-                const updatedCount = importedMemos.length - newCount;
+				 let newCount = importedMemos.filter(
+				    memo => !existingKeys.has(getUrlMemoKey(memo))
+				).length;
+				
+				let updatedCount = importedMemos.length - newCount;
 
                 const existingRefDateKeys = new Set(
                     memos
@@ -993,9 +994,9 @@ async function parseExcelMemoFile(file) {
                     showToast(`DEVB import complete: 0 new, ${importedMemos.length} skipped as existing ref/date matches`);
                     return;
                 }
-
-                const newCount = newImportedMemos.length;
-				const updatedCount = 0;
+				
+				newCount = newImportedMemos.length;
+				updatedCount = 0;
                 const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
                 const mergedUrlMemos = dedupeMemosByUrlRefId([
                             ...existingUrlMemos,
