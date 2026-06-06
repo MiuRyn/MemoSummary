@@ -28,6 +28,20 @@ export function saveGeminiModel(model) {
 }
 
 export async function generateMemoSummaryWithGemini(memoInput) {
+    const {
+        url = "",
+        pdfData = "",
+        ref = "",
+        topic = ""
+    } = memoInput || {};
+
+    if (url && !pdfData) {
+        return await summarizeExternalUrlWithNetlifyFunction({
+            url,
+            ref,
+            topic
+        });
+    }
     const apiKey = getOrPromptForGeminiApiKey();
     const model = getGeminiModel();
     const parts = await buildGeminiParts(memoInput);
@@ -88,6 +102,37 @@ function getOrPromptForGeminiApiKey() {
     return apiKey.trim();
 }
 
+async function summarizeExternalUrlWithNetlifyFunction({
+    url,
+    ref,
+    topic
+}) {
+    const response = await fetch(
+        "/.netlify/functions/summarize-url",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                url,
+                ref,
+                topic
+            })
+        }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(
+            data.error || "Failed to summarize external URL"
+        );
+    }
+
+    return data.summary;
+}
+
 async function buildGeminiParts(memoInput) {
     const {
         ref = "",
@@ -122,12 +167,6 @@ Format requirements:
         }
     }
 
-    const fetchedContentPart = await tryFetchUrlAsGeminiPart(url);
-
-    if (fetchedContentPart) {
-        parts.push(fetchedContentPart);
-    }
-
     return parts;
 }
 
@@ -147,44 +186,7 @@ function dataUrlToGeminiInlinePart(dataUrl) {
     };
 }
 
-async function tryFetchUrlAsGeminiPart(url) {
-    const cleanUrl = (url || "").trim();
 
-    if (!cleanUrl || /^file:/i.test(cleanUrl) || /^\\\\/.test(cleanUrl)) {
-        return null;
-    }
-
-    try {
-        const response = await fetch(cleanUrl, {
-            cache: "no-store"
-        });
-
-        if (!response.ok) return null;
-
-        const contentType = response.headers.get("content-type") || "";
-
-        if (/application\/pdf/i.test(contentType) || /\.pdf($|\?)/i.test(cleanUrl)) {
-            const buffer = await response.arrayBuffer();
-            return {
-                inline_data: {
-                    mime_type: "application/pdf",
-                    data: arrayBufferToBase64(buffer)
-                }
-            };
-        }
-
-        if (/text\/|json|xml|html/i.test(contentType)) {
-            const text = await response.text();
-            return {
-                text: `Fetched document text:\n${htmlToReadableText(text).slice(0, 2500)}`
-            };
-        }
-
-        return null;
-    } catch {
-        return null;
-    }
-}
 
 function htmlToReadableText(text) {
     const raw = text || "";
