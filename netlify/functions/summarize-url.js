@@ -66,14 +66,13 @@ const base64Data = Buffer.from(arrayBuffer).toString("base64");
                             parts: [
                                 {
                                     text: `
-Summarize this government memo in 2 concise sentences.
-
-Reference: ${ref}
-Topic: ${topic}
-Source URL: ${url}
-
-Focus on what the memo is about and its practical relevance to works, tender, contract, or project administration.
-                                    `.trim()
+Extract 3 to 5 important key phrases from the document.
+Format requirements:
+- Separate each phrase with a semicolon (;).
+- Do not use sentences.
+- Do not truncate phrases.
+- If a phrase is long, keep it complete.
+`.trim()
                                 },
                                 {
                                     inlineData: {
