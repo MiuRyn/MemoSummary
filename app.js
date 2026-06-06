@@ -26,6 +26,7 @@ import {
     isImportableDEVBRecord,
     normalizeDEVBItem
 } from "./devb-importer.js";
+import { loadCEDDMemos } from "./cedd-importer.js";
 
 console.info("Government Memo Directory app.js loaded");
 
@@ -495,7 +496,7 @@ function getMemoRefDateDuplicateKey(memo) {
 }
 
 async function importDEVBMemos() {
-    const importDevbBtn = document.getElementById("importDevbBtn");
+    const importDevbBtn = document.getElementById("importMenuBtn") || document.getElementById("importDevbBtn");
     const originalText = importDevbBtn ? importDevbBtn.innerHTML : "";
 
     try {
@@ -567,7 +568,93 @@ async function importDEVBMemos() {
     }
 }
 
-document.getElementById("importDevbBtn").onclick = importDEVBMemos;
+
+async function importCEDDMemos() {
+    const importButton = document.getElementById("importMenuBtn") || document.getElementById("importCeddMenuBtn");
+    const originalText = importButton ? importButton.innerHTML : "";
+
+    try {
+        if (importButton) {
+            importButton.disabled = true;
+            importButton.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing CEDD';
+        }
+
+        showToast("Importing CEDD technical circulars...");
+
+        const existingKeys = new Set(memos.map(getUrlMemoKey).filter(Boolean));
+        const { mergedMemos, changedMemos } = await loadCEDDMemos(memos);
+
+        if (!changedMemos.length) {
+            await loadMemos();
+            showToast("CEDD import complete: no new or updated records");
+            return;
+        }
+
+        const changedUrlMemos = changedMemos.filter(memo => cleanText(memo.url || ""));
+        const mergedUrlMemos = mergedMemos.filter(memo => cleanText(memo.url || ""));
+        const newCount = changedUrlMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
+        const updatedCount = changedUrlMemos.length - newCount;
+
+        await overwriteUrlMemoChunks(db, mergedUrlMemos);
+        await cleanupIndividualUrlDocuments(db, changedUrlMemos);
+
+        await loadMemos();
+        showToast(`CEDD import complete: ${newCount} new, ${updatedCount} updated`);
+    } catch (error) {
+        console.error(error);
+        showToast(error.message || "Failed to import CEDD circulars", "error");
+    } finally {
+        if (importButton) {
+            importButton.disabled = false;
+            importButton.innerHTML = originalText;
+        }
+    }
+}
+
+const importMenuBtn = document.getElementById("importMenuBtn");
+const importMenu = document.getElementById("importMenu");
+const importMenuWrap = document.getElementById("importMenuWrap");
+
+if (importMenuBtn && importMenu && importMenuWrap) {
+    importMenuBtn.onclick = () => importMenu.classList.toggle("hidden");
+
+    document.addEventListener("click", (event) => {
+        if (!importMenuWrap.contains(event.target)) {
+            importMenu.classList.add("hidden");
+        }
+    });
+}
+
+function closeImportMenu() {
+    if (importMenu) importMenu.classList.add("hidden");
+}
+
+document.getElementById("importDevbMenuBtn")?.addEventListener("click", () => {
+    closeImportMenu();
+    importDEVBMemos();
+});
+
+document.getElementById("importCeddMenuBtn")?.addEventListener("click", () => {
+    closeImportMenu();
+    importCEDDMemos();
+});
+
+document.getElementById("importExcelMenuBtn")?.addEventListener("click", () => {
+    closeImportMenu();
+    const excelInput = document.getElementById("excelImportInput");
+    if (excelInput) {
+        excelInput.click();
+    } else {
+        showToast("Excel import input was not found on this page", "error");
+    }
+});
+
+document.getElementById("importJsonMenuBtn")?.addEventListener("click", () => {
+    closeImportMenu();
+    importInput.click();
+});
+
+document.getElementById("importDevbBtn")?.addEventListener("click", importDEVBMemos);
 
 document.getElementById("exportBtn").onclick = () => {
     const blob = new Blob([JSON.stringify(memos, null, 2)], { type: "application/json" });
@@ -581,7 +668,7 @@ document.getElementById("exportBtn").onclick = () => {
     URL.revokeObjectURL(url);
 };
 
-document.getElementById("importBtn").onclick = () => importInput.click();
+document.getElementById("importBtn")?.addEventListener("click", () => importInput.click());
 
 importInput.onchange = async (event) => {
     const file = event.target.files[0];
