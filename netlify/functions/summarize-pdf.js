@@ -8,8 +8,7 @@ exports.handler = async function (event) {
             return json(500, { error: "GEMINI_API_KEY environment variable is missing" });
         }
 
-        const { pdfData = "", ref = "", topic = "" } = JSON.parse(event.body || "{}");
-
+        const { pdfData = "", ref = "", date = "", topic = "" } = JSON.parse(event.body || "{}");
         const parsedPdf = parseDataUrl(pdfData);
 
         if (!parsedPdf) {
@@ -22,14 +21,15 @@ exports.handler = async function (event) {
             return json(400, { error: "PDF exceeds 15MB limit" });
         }
 
-        const summary = await generateGeminiSummary({
+        const result = await generateGeminiSummaryAndMetadata({
             mimeType: parsedPdf.mimeType,
             base64Data: parsedPdf.base64Data,
             ref,
+            date,
             topic
         });
 
-        return json(200, { summary });
+        return json(200, result);
     } catch (error) {
         return json(500, {
             error: error.message || "Failed to summarize uploaded PDF"
@@ -48,7 +48,7 @@ function parseDataUrl(dataUrl) {
     };
 }
 
-async function generateGeminiSummary({ mimeType, base64Data, ref, topic }) {
+async function generateGeminiSummaryAndMetadata({ mimeType, base64Data, ref, date, topic }) {
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
@@ -61,18 +61,7 @@ async function generateGeminiSummary({ mimeType, base64Data, ref, topic }) {
                     {
                         parts: [
                             {
-                                text: `
-Extract 3 to 5 important key phrases from this government memo.
-
-Reference: ${ref}
-Topic: ${topic}
-
-Format requirements:
-- Separate each phrase with a semicolon (;).
-- Do not use sentences.
-- Do not truncate phrases.
-- If a phrase is long, keep it complete.
-                                `.trim()
+                                text: buildPrompt({ ref, date, topic })
                             },
                             {
                                 inlineData: {
@@ -85,7 +74,7 @@ Format requirements:
                 ],
                 generationConfig: {
                     temperature: 0.1,
-                    maxOutputTokens: 1000
+                    maxOutputTokens: 1200
                 }
             })
         }
@@ -97,13 +86,124 @@ Format requirements:
         throw new Error(data.error?.message || "Gemini summary failed");
     }
 
-    const summary = data.candidates?.[0]?.content?.parts?.map(part => part.text || "").join(" ").trim();
+    const text = data.candidates?.[0]?.content?.parts?.map(part => part.text || "").join(" ").trim();
 
-    if (!summary) {
-        throw new Error("Gemini returned an empty summary");
+    if (!text) {
+        throw new Error("Gemini returned an empty response");
     }
 
-    return cleanText(summary).replace(/\n/g, " ").replace(/\s*;\s*/g, "; ").replace(/\.$/, "");
+    return parseGeminiJsonResult(text);
+}
+
+function buildPrompt({ ref, date, topic }) {
+    return `
+Extract memo metadata and keywords from this government memo.
+
+Existing form values:
+- Reference: ${ref || ""}
+- Date: ${date || ""}
+- Topic: ${topic || ""}
+
+Return ONLY valid JSON in this exact shape:
+{
+  "summary": "",
+  "ref": "",
+  "date": "",
+  "topic": ""
+}
+
+Rules:
+- summary = 3 to 5 important key phrases separated by semicolons (;).
+- ref = official memo, circular, technical circular, or reference number.
+- date = exact issue date in YYYY-MM-DD format.
+- topic = official memo title or subject.
+- If a field is not found, return an empty string for that field.
+- Do not invent missing values.
+- Do not add markdown, comments, code fences, headings, or extra text.
+    `.trim();
+}
+
+function parseGeminiJsonResult(text) {
+    const clean = cleanText(text)
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/\s*```$/i, "");
+
+    let parsed = null;
+
+    try {
+        parsed = JSON.parse(clean);
+    } catch {
+        const jsonMatch = clean.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            parsed = JSON.parse(jsonMatch[0]);
+        }
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+        return {
+            summary: cleanSummary(clean),
+            ref: "",
+            date: "",
+            topic: "",
+            metadata: {
+                ref: "",
+                date: "",
+                topic: ""
+            }
+        };
+    }
+
+    const result = {
+        summary: cleanSummary(parsed.summary || ""),
+        ref: cleanText(parsed.ref || ""),
+        date: normalizeDateForInput(parsed.date || ""),
+        topic: cleanText(parsed.topic || "")
+    };
+
+    return {
+        ...result,
+        metadata: {
+            ref: result.ref,
+            date: result.date,
+            topic: result.topic
+        }
+    };
+}
+
+function normalizeDateForInput(value) {
+    const cleanValue = cleanText(value);
+
+    if (!cleanValue) return "";
+
+    const isoMatch = cleanValue.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (isoMatch) {
+        return `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
+    }
+
+    const slashMatch = cleanValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) {
+        return `${slashMatch[3]}-${slashMatch[2].padStart(2, "0")}-${slashMatch[1].padStart(2, "0")}`;
+    }
+
+    const parsed = new Date(cleanValue);
+    if (!Number.isNaN(parsed.getTime()) && /\d{4}/.test(cleanValue)) {
+        return [
+            parsed.getFullYear(),
+            String(parsed.getMonth() + 1).padStart(2, "0"),
+            String(parsed.getDate()).padStart(2, "0")
+        ].join("-");
+    }
+
+    return "";
+}
+
+function cleanSummary(value) {
+    return cleanText(value)
+        .replace(/\n/g, " ")
+        .replace(/\s*;\s*/g, "; ")
+        .replace(/\.$/, "")
+        .trim();
 }
 
 function cleanText(value) {
