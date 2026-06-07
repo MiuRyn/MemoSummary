@@ -3,6 +3,6 @@
     "pdfjs-dist": "3.11.174"
   },
   "engines": {
-    "node": "18.x"
+    "node": "18"
   }
 }
