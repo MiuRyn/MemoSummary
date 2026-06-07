@@ -234,7 +234,53 @@ function renderTable() {
             renderPaginationControls();
 			updateBatchDeleteControls(visibleMemoIds);
 }
+// add batch delete function
+async function batchDeleteSelectedMemos() {
+    const idsToDelete = Array.from(selectedMemoIds);
 
+    if (!idsToDelete.length) {
+        showToast("No memos selected", "error");
+        return;
+    }
+
+    const confirmed = window.confirm(`Delete ${idsToDelete.length} selected memo(s)? This action cannot be undone.`);
+
+    if (!confirmed) return;
+
+    if (batchDeleteBtn) {
+        batchDeleteBtn.disabled = true;
+        batchDeleteBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Deleting</span>';
+    }
+
+    try {
+        const memosToDelete = memos.filter(memo => selectedMemoIds.has(memo.id));
+
+        for (const memo of memosToDelete) {
+            await deleteMemoRecord(memo);
+        }
+
+        memos = memos.filter(memo => !selectedMemoIds.has(memo.id));
+        selectedMemoIds.clear();
+
+        const updatedTotalPages = Math.ceil(memos.length / itemsPerPage) || 1;
+        if (window.currentPage > updatedTotalPages) {
+            window.currentPage = updatedTotalPages;
+        }
+
+        renderTable();
+        showToast(`${memosToDelete.length} memo(s) deleted`, "success");
+    } catch (error) {
+        console.error(error);
+        showToast("Error deleting selected memos", "error");
+    } finally {
+        if (batchDeleteBtn) {
+            batchDeleteBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i><span>Delete Selected</span><span id="selectedMemoCount" class="bg-white/20 px-1.5 py-0.5 rounded">0</span>';
+        }
+        updateBatchDeleteControls();
+    }
+}
+
+//
         function renderPaginationControls() {
             const container = document.getElementById('paginationControls');
             let html = '';
@@ -1026,6 +1072,28 @@ function renderTable() {
         dateSearchInput.oninput = handleFilterChange;
         condSearchInput.oninput = handleFilterChange;
         categoryFilter.onchange = handleFilterChange;
+// add select-all event
+		if (selectAllMemosCheckbox) {
+		    selectAllMemosCheckbox.onchange = () => {
+		        const visibleCheckboxes = Array.from(document.querySelectorAll(".memo-row-checkbox"));
+		
+		        visibleCheckboxes.forEach(checkbox => {
+		            const rowIdMatch = checkbox.getAttribute("onchange")?.match(/'([^']+)'/);
+		            const id = rowIdMatch ? rowIdMatch[1] : "";
+		
+		            if (!id) return;
+		
+		            if (selectAllMemosCheckbox.checked) {
+		                selectedMemoIds.add(id);
+		            } else {
+		                selectedMemoIds.delete(id);
+		            }
+		        });
+		
+		        renderTable();
+		    };
+		}
+// end of select-all event
 
         memoPdfInput.onchange = (e) => {
             const file = e.target.files[0];
@@ -1064,6 +1132,8 @@ function renderTable() {
         if (generateSummaryBtn) {
             generateSummaryBtn.onclick = generateMemoDescriptionFromGemini;
         }
-
+		if (batchDeleteBtn) {
+		    batchDeleteBtn.onclick = batchDeleteSelectedMemos;
+		}
         renderCategoryTools();
         loadMemos();
