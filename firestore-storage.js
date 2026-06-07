@@ -175,21 +175,27 @@ export async function cleanupIndividualUrlDocuments(db, urlMemos) {
     return deletes.length;
 }
 
-export async function loadAllMemos(db) {
-    const [urlMemos, querySnapshot] = await Promise.all([
-        loadUrlMemoChunks(db),
-        getDocs(collection(db, "memos"))
-    ]);
+export async function loadMemos() {
+            try {
+                const [urlMemos, querySnapshot] = await Promise.all([
+                    loadUrlMemoChunks(),
+                    getDocs(collection(db, "memos"))
+                ]);
 
-    const individualMemos = [];
+                const individualMemos = [];
 
-    querySnapshot.forEach((snapshot) => {
-        const data = snapshot.data();
+                querySnapshot.forEach((snapshot) => {
+                    const data = snapshot.data();
 
-        if (!cleanText(data.url || "")) {
-            individualMemos.push(data);
-        }
-    });
+                    if (!cleanText(data.url || "")) {
+                        individualMemos.push(data);
+                    }
+                });
 
-    return dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
+                memos = dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
+                renderTable();
+            } catch (error) {
+                console.error(error);
+                showToast("Failed to load data from database", "error");
+            }
 }
