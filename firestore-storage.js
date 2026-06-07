@@ -7,6 +7,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
 import { cleanText } from "./utils.js";
+import { db } from "/firebase-config.js";
 
 const URL_MEMO_CHUNK_COLLECTION = "appData";
 const URL_MEMO_CHUNK_PREFIX = "memoChunk_";
