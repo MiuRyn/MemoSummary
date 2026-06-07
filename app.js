@@ -21,6 +21,7 @@
         const defaultCats = ["Insurance / PII", "Conditions of Contract", "Technical Specifications", "Procurement Guidelines"];
         let categories = JSON.parse(localStorage.getItem('tender_categories')) || defaultCats;
         let memoToDeleteId = null;
+		let selectedMemoIds = new Set();
 
         const URL_MEMO_CHUNK_COLLECTION = "appData";
         const URL_MEMO_CHUNK_PREFIX = "memoChunk_";
@@ -52,7 +53,9 @@
         const generateSummaryBtn = document.getElementById('generateSummaryBtn');
         const dateSortBtn = document.getElementById('dateSortBtn');
         const dateSortIcon = document.getElementById('dateSortIcon');
-
+		const batchDeleteBtn = document.getElementById("batchDeleteBtn");
+		const selectedMemoCount = document.getElementById("selectedMemoCount");
+		const selectAllMemosCheckbox = document.getElementById("selectAllMemosCheckbox");
 
       async function loadMemos() {
             try {
@@ -124,8 +127,40 @@
                 dateSortIcon.className = "fa-solid fa-sort text-xs";
             }
         }
-        
-        function renderTable() {
+
+//batch delet helper function
+
+function updateBatchDeleteControls(visibleMemoIds = []) {
+    const selectedCount = selectedMemoIds.size;
+
+    if (selectedMemoCount) {
+        selectedMemoCount.textContent = selectedCount;
+    }
+
+    if (batchDeleteBtn) {
+        batchDeleteBtn.disabled = selectedCount === 0;
+        batchDeleteBtn.classList.toggle("hidden", selectedCount === 0);
+    }
+
+    if (selectAllMemosCheckbox) {
+        const visibleSelectedCount = visibleMemoIds.filter(id => selectedMemoIds.has(id)).length;
+        selectAllMemosCheckbox.checked = visibleMemoIds.length > 0 && visibleSelectedCount === visibleMemoIds.length;
+        selectAllMemosCheckbox.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < visibleMemoIds.length;
+    }
+}
+
+window.toggleMemoSelection = (id, checked) => {
+    if (checked) {
+        selectedMemoIds.add(id);
+    } else {
+        selectedMemoIds.delete(id);
+    }
+
+    renderTable();
+};
+
+//
+function renderTable() {
             const term = searchInput.value.toLowerCase();
             const dateTerm = dateSearchInput.value.toLowerCase();
             const condTerm = condSearchInput.value.toLowerCase();
@@ -164,6 +199,7 @@
             const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
             
             const paginatedMemos = filtered.slice(startIndex, endIndex);
+			const visibleMemoIds = paginatedMemos.map(m => m.id);
 
             memoCount.textContent = totalItems;
             document.getElementById('totalFilteredItems').textContent = totalItems;
@@ -171,8 +207,14 @@
             document.getElementById('pageEndItem').textContent = endIndex;
 
             memoTableBody.innerHTML = paginatedMemos.map(m => `
-                <tr class="hover:bg-slate-50 transition border-b border-slate-100">
-                    <td class="py-3 px-4 font-semibold">${m.ref || ''}</td>
+				<tr class="hover:bg-slate-50 transition border-b border-slate-100 ${selectedMemoIds.has(m.id) ? 'bg-red-50/40' : ''}">
+				    <td class="py-3 px-4">
+				        <input type="checkbox"
+				               class="memo-row-checkbox h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+				               ${selectedMemoIds.has(m.id) ? "checked" : ""}
+				               onchange="window.toggleMemoSelection('${m.id}', this.checked)">
+				    </td>
+				    <td class="py-3 px-4 font-semibold">${m.ref || ''}</td>
                     <td class="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">${formatMemoDate(m.date)}</td>
                     <td class="py-3 px-4">${m.topic || ''}</td>
                     <td class="py-3 px-4"><span class="px-2 py-0.5 bg-slate-100 rounded text-[10px] text-slate-600 font-medium">${m.conditions || 'N/A'}</span></td>
@@ -190,7 +232,8 @@
             `).join('');
 
             renderPaginationControls();
-        }
+			updateBatchDeleteControls(visibleMemoIds);
+}
 
         function renderPaginationControls() {
             const container = document.getElementById('paginationControls');
