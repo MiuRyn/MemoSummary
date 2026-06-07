@@ -1,3 +1,33 @@
+const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
+
+async function extractPdfTextFromFirstPages(arrayBuffer, maxPages = 2) {
+    const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(arrayBuffer),
+        disableWorker: true
+    });
+
+    const pdf = await loadingTask.promise;
+    const pagesToRead = Math.min(maxPages, pdf.numPages);
+    const pageTexts = [];
+
+    for (let pageNum = 1; pageNum <= pagesToRead; pageNum += 1) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+
+        const text = textContent.items
+            .map(item => item.str || "")
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        if (text) {
+            pageTexts.push(text);
+        }
+    }
+
+    return pageTexts.join("\n\n").trim();
+}
+
 exports.handler = async function (event) {
     try {
         if (event.httpMethod !== "POST") {
@@ -37,16 +67,32 @@ exports.handler = async function (event) {
             return json(400, { error: "PDF exceeds 15MB limit" });
         }
 
-        const base64Data = Buffer.from(arrayBuffer).toString("base64");
+        const documentText = await extractPdfTextFromFirstPages(arrayBuffer, 2);
 
-        const result = await generateGeminiSummaryAndMetadata({
-            mimeType: contentType.includes("pdf") ? "application/pdf" : contentType,
-            base64Data,
-            ref,
-            date,
-            topic,
-            url
-        });
+        let result;
+
+        if (documentText.trim()) {
+            result = await generateGeminiSummaryAndMetadata({
+                documentText,
+                ref,
+                date,
+                topic,
+                url
+            });
+        } else {
+            console.log("No text extracted. Falling back to PDF upload.");
+
+            const base64Data = Buffer.from(arrayBuffer).toString("base64");
+
+            result = await generateGeminiSummaryAndMetadataFromPdf({
+                mimeType: contentType.includes("pdf") ? "application/pdf" : contentType,
+                base64Data,
+                ref,
+                date,
+                topic,
+                url
+            });
+        }
 
         return json(200, result);
     } catch (error) {
@@ -56,7 +102,64 @@ exports.handler = async function (event) {
     }
 };
 
-async function generateGeminiSummaryAndMetadata({ mimeType, base64Data, ref, date, topic, url }) {
+async function generateGeminiSummaryAndMetadata({ documentText, ref, date, topic, url }) {
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        parts: [
+                            {
+                                text: `
+${buildPrompt({ ref, date, topic, url })}
+
+Document text from first 2 pages:
+
+${documentText}
+                                `.trim()
+                            }
+                        ]
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 1400
+                }
+            })
+        }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.error?.message || "Gemini summary failed");
+    }
+
+    const text = data.candidates?.[0]?.content?.parts
+        ?.map(part => part.text || "")
+        .join(" ")
+        .trim();
+
+    if (!text) {
+        throw new Error("Gemini returned an empty response");
+    }
+
+    return parseGeminiJsonResult(text);
+}
+
+async function generateGeminiSummaryAndMetadataFromPdf({
+    mimeType,
+    base64Data,
+    ref,
+    date,
+    topic,
+    url
+}) {
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
         {
@@ -91,10 +194,13 @@ async function generateGeminiSummaryAndMetadata({ mimeType, base64Data, ref, dat
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new Error(data.error?.message || "Gemini summary failed");
+        throw new Error(data.error?.message || "Gemini PDF fallback failed");
     }
 
-    const text = data.candidates?.[0]?.content?.parts?.map(part => part.text || "").join(" ").trim();
+    const text = data.candidates?.[0]?.content?.parts
+        ?.map(part => part.text || "")
+        .join(" ")
+        .trim();
 
     if (!text) {
         throw new Error("Gemini returned an empty response");
@@ -106,6 +212,7 @@ async function generateGeminiSummaryAndMetadata({ mimeType, base64Data, ref, dat
 function buildPrompt({ ref, date, topic, url }) {
     return `
 Extract memo metadata and keywords from this government memo.
+Only use the provided document text or PDF content.
 
 Existing form values:
 - Reference: ${ref || ""}
@@ -163,7 +270,9 @@ function parseGeminiJsonResult(text) {
         };
     }
 
-    const summaryObject = parsed.summary && typeof parsed.summary === "object" ? parsed.summary : null;
+    const summaryObject = parsed.summary && typeof parsed.summary === "object"
+        ? parsed.summary
+        : null;
 
     const result = {
         summary: cleanSummary(summaryObject?.summary ?? summaryObject?.text ?? parsed.summary ?? ""),
@@ -219,6 +328,7 @@ function cleanSummary(value) {
 
 function cleanText(value) {
     if (value === null || value === undefined) return "";
+
     if (typeof value === "object") {
         if (typeof value.summary === "string") return cleanText(value.summary);
         if (typeof value.text === "string") return cleanText(value.text);
