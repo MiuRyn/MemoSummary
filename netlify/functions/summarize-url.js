@@ -156,6 +156,7 @@ Return ONLY valid JSON in this exact shape:
 
 Rules:
 - summary = 3 to 5 important key phrases separated by semicolons (;).
+- Key phrase shall include conditions for the memo to apply, if have;
 - ref = official memo, circular, technical circular, or reference number.
 - date = exact issue date in YYYY-MM-DD format.
 - topic = official memo title or subject.
