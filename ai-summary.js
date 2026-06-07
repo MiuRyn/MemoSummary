@@ -1,8 +1,4 @@
 
-export async function generateTwoSentenceMemoSummary({ memoDraft } = {}) {
-    const result = await generateMemoSummaryWithGemini(memoDraft || {});
-    return typeof result === "string" ? result : (result.summary || "");
-}
 
 export async function generateMemoSummaryWithGemini(memoInput) {
     const {
