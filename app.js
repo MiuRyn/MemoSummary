@@ -689,6 +689,7 @@
 			    saveFormBtn.disabled = false;
 			    saveSpinner.classList.add("hidden");
 			}
+		};
         window.editMemo = (id) => {
             const m = memos.find(x => x.id === id);
             document.getElementById('memoId').value = m.id;
