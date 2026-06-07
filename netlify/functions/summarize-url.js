@@ -28,7 +28,7 @@ export async function extractPdfTextFromFirstPages(arrayBuffer, maxPages = 2) {
     return pageTexts.join("\n\n").trim();
 }
 
-exports.handler = async function (event) {
+module.exports.handler = async function (event) {
     try {
         if (event.httpMethod !== "POST") {
             return json(405, { error: "Method not allowed" });
