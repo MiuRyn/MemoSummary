@@ -469,16 +469,20 @@
                 generateSummaryBtn.disabled = true;
                 generateSummaryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Generating</span>';
 
-                const aiResult = await generateMemoSummaryWithGemini({
-                    ref: memoRefInput.value,
-                    date: memoDateInput.value,
-                    topic: memoTopicInput.value,
-                    url: document.getElementById('memoLink').value,
-                    category: document.getElementById('memoCategory').value,
-                    conditions: document.getElementById('memoConditions').value,
-                    application: memoApplicationInput.value,
-                    pdfData: memoPdfData.value
-                });
+				const currentMemoId = document.getElementById('memoId').value;
+				const currentMemo = memos.find(m => m.id === currentMemoId);
+				
+				const aiResult = await generateMemoSummaryWithGemini({
+				    ref: memoRefInput.value,
+				    date: memoDateInput.value,
+				    topic: memoTopicInput.value,
+				    url: document.getElementById('memoLink').value,
+				    pdfUrl: currentMemo?.pdfUrl || "",
+				    category: document.getElementById('memoCategory').value,
+				    conditions: document.getElementById('memoConditions').value,
+				    application: memoApplicationInput.value,
+				    pdfData: memoPdfData.value
+				});
 
                 const summaryText = typeof aiResult === "string" ? aiResult : (aiResult.summary || "");
 
@@ -630,57 +634,61 @@
             };
 
 			if (!data.ref || !data.topic) {
-            	return showToast("Ref and Topic are required", "error");
-            }
-			
-			const previousMemo = memos.find(m => m.id === data.id);
-			
-			data.pdfUrl = previousMemo?.pdfUrl || "";
-			data.pdfStoragePath = previousMemo?.pdfStoragePath || "";
-			
-			if (selectedPdfFile) {
-			    const timestamp = Date.now();
-			    const safeRef = safeStorageFileName(data.ref);
-			    const storagePath = `memo-pdfs/${data.id}/${timestamp}_${safeRef}.pdf`;
-			    const fileRef = storageRef(storage, storagePath);
-			
-			    await uploadBytes(fileRef, selectedPdfFile, {
-			        contentType: "application/pdf"
-			    });
-			
-			    data.pdfUrl = await getDownloadURL(fileRef);
-			    data.pdfStoragePath = storagePath;
-			    data.pdfData = "";
+			    return showToast("Ref and Topic are required", "error");
 			}
-
-
-
-            saveFormBtn.disabled = true;
-            saveSpinner.classList.remove('hidden');
-
-            try {
-                if (previousMemo && cleanText(previousMemo.url || "") && !cleanText(data.url || "")) {
-                    await removeUrlMemoFromChunks(previousMemo);
-                }
-
-                await saveMemoRecord(data);
-                const idx = memos.findIndex(m => m.id === data.id);
-                if (idx > -1) {
-                    memos[idx] = data;
-                } else {
-                    memos.push(data);
-                }
-                renderTable();
-                closeM();
-                showToast("Saved successfully");
-            } catch (error) {
-                showToast("Error saving to database", "error");
-            } finally {
-                saveFormBtn.disabled = false;
-                saveSpinner.classList.add('hidden');
-            }
-        };
-
+			
+			saveFormBtn.disabled = true;
+			saveSpinner.classList.remove("hidden");
+			
+			try {
+			    const previousMemo = memos.find(m => m.id === data.id);
+			
+			    data.pdfUrl = previousMemo?.pdfUrl || "";
+			    data.pdfStoragePath = previousMemo?.pdfStoragePath || "";
+			
+			    if (selectedPdfFile) {
+			        const timestamp = Date.now();
+			        const safeRef = safeStorageFileName(data.ref);
+			        const storagePath = `memo-pdfs/${data.id}/${timestamp}_${safeRef}.pdf`;
+			        const fileRef = storageRef(storage, storagePath);
+			
+			        await uploadBytes(fileRef, selectedPdfFile, {
+			            contentType: "application/pdf"
+			        });
+			
+			        data.pdfUrl = await getDownloadURL(fileRef);
+			        data.pdfStoragePath = storagePath;
+			        data.pdfData = "";
+			    }
+			
+			    if (previousMemo && cleanText(previousMemo.url || "") && !cleanText(data.url || "")) {
+			        await removeUrlMemoFromChunks(previousMemo);
+			    }
+			
+			    await saveMemoRecord(data);
+			
+			    const idx = memos.findIndex(m => m.id === data.id);
+			    if (idx > -1) {
+			        memos[idx] = data;
+			    } else {
+			        memos.push(data);
+			    }
+			
+			    renderTable();
+			    closeM();
+			
+			    selectedPdfFile = null;
+			    memoPdfData.value = "";
+			    memoPdfInput.value = "";
+			
+			    showToast("Saved successfully");
+			} catch (error) {
+			    console.error(error);
+			    showToast("Error saving to database", "error");
+			} finally {
+			    saveFormBtn.disabled = false;
+			    saveSpinner.classList.add("hidden");
+			}
         window.editMemo = (id) => {
             const m = memos.find(x => x.id === id);
             document.getElementById('memoId').value = m.id;
@@ -1238,9 +1246,14 @@ async function parseExcelMemoFile(file) {
 		        showToast("PDF is too large. Limit is 25MB.", "error");
 		        return;
 		    }
-		
-		    selectedPdfFile = file;
-		    pdfUploadStatus.textContent = `Ready to upload: ${file.name} (${Math.round(file.size / 1024)}KB)`;
+				selectedPdfFile = file;
+				
+				const reader = new FileReader();
+				reader.onload = (event) => {
+				    memoPdfData.value = event.target.result;
+				    pdfUploadStatus.textContent = `Ready to upload: ${file.name} (${Math.round(file.size / 1024)}KB)`;
+				};
+				reader.readAsDataURL(file);
 		};
 
         if (dateSortBtn) {
