@@ -14,6 +14,7 @@
 				saveMemoRecord, 
 				deleteMemoRecord,
 				cleanupIndividualUrlDocuments,
+				loadUrlMemoChunks
 			   } from "./firestore-storage.js";
 
        // const firebaseConfig = {
