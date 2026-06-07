@@ -1,12 +1,4 @@
 
-export function getStoredOpenAIApiKey() {
-    return "server-side-netlify-gemini";
-}
-
-export function requestOpenAIApiKey() {
-    return "server-side-netlify-gemini";
-}
-
 export async function generateTwoSentenceMemoSummary({ memoDraft } = {}) {
     const result = await generateMemoSummaryWithGemini(memoDraft || {});
     return typeof result === "string" ? result : (result.summary || "");
