@@ -1,6 +1,6 @@
 const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
 
-async function extractPdfTextFromFirstPages(arrayBuffer, maxPages = 2) {
+export async function extractPdfTextFromFirstPages(arrayBuffer, maxPages = 2) {
     const loadingTask = pdfjsLib.getDocument({
         data: new Uint8Array(arrayBuffer),
         disableWorker: true
