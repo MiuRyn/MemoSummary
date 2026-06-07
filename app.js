@@ -14,7 +14,6 @@
 				saveMemoRecord, 
 				deleteMemoRecord,
 				cleanupIndividualUrlDocuments,
-				loadMemos
 			   } from "./firestore-storage.js";
 
        // const firebaseConfig = {
@@ -233,30 +232,30 @@
          //   return deletes.length;
      //   }
 
-      //  async function loadMemos() {
-            //try {
-              //  const [urlMemos, querySnapshot] = await Promise.all([
-               //     loadUrlMemoChunks(),
-              //      getDocs(collection(db, "memos"))
-             //   ]);
-//
-             //   const individualMemos = [];
+      async function loadMemos() {
+            try {
+                const [urlMemos, querySnapshot] = await Promise.all([
+                    loadUrlMemoChunks(),
+                    getDocs(collection(db, "memos"))
+                ]);
 
-             //   querySnapshot.forEach((snapshot) => {
-            //        const data = snapshot.data();
+                const individualMemos = [];
 
-            //        if (!cleanText(data.url || "")) {
-           //            individualMemos.push(data);
-           //         }
-           //     });
+                querySnapshot.forEach((snapshot) => {
+                    const data = snapshot.data();
 
-           //     memos = dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
-          //      renderTable();
-        //    } catch (error) {
-        //        console.error(error);
-        //        showToast("Failed to load data from database", "error");
-       //     }
-       // }
+                    if (!cleanText(data.url || "")) {
+                       individualMemos.push(data);
+                    }
+                });
+
+                memos = dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
+                renderTable();
+            } catch (error) {
+                console.error(error);
+                showToast("Failed to load data from database", "error");
+            }
+        }
 
         //function formatMemoDate(dateValue) {
         //    if (!dateValue) return "";
