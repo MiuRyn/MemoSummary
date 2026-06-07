@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "pdf-lib": "1.17.1"
+  },
+  "engines": {
+    "node": "18"
+  }
+}

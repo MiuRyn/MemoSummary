@@ -60,13 +60,17 @@ export function normalizeDEVBItem(item) {
     };
 }
 
+function isCircularRecord(value) {
+    return isImportableDEVBRecord(value);
+}
+
+
 function getCircularRecordKey(item) {
     const circularNumber = cleanText(item && item.CircularNumber || "");
     const title = cleanText(item && item.Title || "");
     const files = Array.isArray(item && item.Files)
         ? item.Files.map(filePath => cleanText(filePath || "")).join("|")
         : "";
-
     return `${circularNumber}::${title}::${files}`;
 }
 
@@ -74,13 +78,11 @@ function collectCircularRecords(value, output = [], visited = new Set(), depth =
     if (!value || depth > 8) return output;
 
     const valueType = typeof value;
-
     if (valueType !== "object" && valueType !== "function") return output;
     if (visited.has(value)) return output;
-
     visited.add(value);
 
-    if (isImportableDEVBRecord(value)) {
+    if (isCircularRecord(value)) {
         output.push(value);
         return output;
     }
@@ -110,9 +112,7 @@ function dedupeCircularRecords(records) {
 
     for (const record of records) {
         const key = getCircularRecordKey(record);
-
         if (!key || seen.has(key)) continue;
-
         seen.add(key);
         unique.push(record);
     }
@@ -125,7 +125,6 @@ async function loadDEVBItemsViaScriptTag() {
 
     await new Promise((resolve, reject) => {
         const existingScript = document.querySelector('script[data-devb-importer="true"]');
-
         if (existingScript) existingScript.remove();
 
         const script = document.createElement("script");
@@ -175,11 +174,8 @@ async function fetchDEVBDataJsText() {
     for (const url of urls) {
         try {
             const response = await fetch(url, { cache: "no-store" });
-
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
             const text = await response.text();
-
             if (text && text.includes("CircularNumber")) return text;
         } catch (error) {
             lastError = error;
@@ -262,12 +258,10 @@ function parseDEVBDataJsText(jsText) {
         for (const objectText of objectMatches) {
             try {
                 const parsed = JSON.parse(objectText);
-
                 if (isImportableDEVBRecord(parsed)) allRecords.push(parsed);
             } catch {
                 try {
                     const parsed = Function(`"use strict"; return (${objectText});`)();
-
                     if (isImportableDEVBRecord(parsed)) allRecords.push(parsed);
                 } catch {
                     continue;
@@ -295,3 +289,53 @@ export async function loadDEVBItems() {
         return parseDEVBDataJsText(jsText);
     }
 }
+
+export function normalizeMemoRefForDuplicateCheck(value) {
+            return cleanText(value || "")
+                .toUpperCase()
+                .replace(/^TC\s*\(?W\)?\s*NO\.?\s*/i, "")
+                .replace(/^TCW\s*NO\.?\s*/i, "")
+                .replace(/\s+/g, "")
+                .replace(/[.]/g, "");
+        }
+
+export function normalizeMemoDateForDuplicateCheck(value) {
+            const raw = cleanText(value || "");
+
+            if (!raw) return "";
+
+            const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+            if (isoMatch) {
+                return `${isoMatch[1]}-${isoMatch[2].padStart(2, "0")}-${isoMatch[3].padStart(2, "0")}`;
+            }
+
+            const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (slashMatch) {
+                const day = slashMatch[1].padStart(2, "0");
+                const month = slashMatch[2].padStart(2, "0");
+                const year = slashMatch[3];
+
+                return `${year}-${month}-${day}`;
+            }
+
+            const parsed = new Date(raw);
+            if (!Number.isNaN(parsed.getTime())) {
+                const year = parsed.getFullYear();
+                const month = String(parsed.getMonth() + 1).padStart(2, "0");
+                const day = String(parsed.getDate()).padStart(2, "0");
+
+                return `${year}-${month}-${day}`;
+            }
+
+            return raw.toUpperCase();
+        }
+
+export function getMemoRefDateDuplicateKey(memo) {
+        const normalizedRef = normalizeMemoRefForDuplicateCheck(memo && memo.ref);
+        const normalizedDate = normalizeMemoDateForDuplicateCheck(memo && memo.date);
+
+        if (!normalizedRef || !normalizedDate) return "";
+
+        return `${normalizedRef}::${normalizedDate}`;
+}
+
