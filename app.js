@@ -1,11 +1,11 @@
-				
+		import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-storage.js";		
         import { collection, getDocs, setDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
         import { isLocalFileLink, localFileLinkToCopyPath, copyTextToClipboard } from "./local-file-links.js";
         import { generateMemoSummaryWithGemini } from "./ai-summary.js";
         import { loadCEDDMemos } from "./cedd-importer.js";
 		import { loadDEVBItems, getMemoRefDateDuplicateKey, isImportableDEVBRecord, normalizeDEVBItem } from "./devb-importer.js";
 		import { showToast, cleanText, formatMemoDate } from "./utils.js";
-		import { db } from "/firebase-config.js";
+		import { db, storage } from "/firebase-config.js";
 		import { getUrlMemoKey, 
 				dedupeMemosByUrlRefId, 
 				overwriteUrlMemoChunks, 
@@ -34,6 +34,7 @@
         const defaultCats = ["Insurance / PII", "Conditions of Contract", "Technical Specifications", "Procurement Guidelines"];
         let categories = JSON.parse(localStorage.getItem('tender_categories')) || defaultCats;
         let memoToDeleteId = null;
+		let selectedPdfFile = null;
 
         const URL_MEMO_CHUNK_COLLECTION = "appData";
         const URL_MEMO_CHUNK_PREFIX = "memoChunk_";
@@ -370,7 +371,7 @@
                     <td class="py-3 px-4 text-right whitespace-nowrap">
                         <div class="flex justify-end gap-1">
                             ${renderMemoLinkAction(m)}
-                            ${m.pdfData ? `<button onclick="openPdf('${m.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="Open PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
+                            ${(m.pdfUrl || m.pdfData) ? `<button onclick="openPdf('${m.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="Open PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
                             <button onclick="editMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-blue-600 transition"><i class="fa-solid fa-pen"></i></button>
                             <button onclick="deleteMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-red-600 transition"><i class="fa-solid fa-trash"></i></button>
                         </div>
@@ -413,9 +414,11 @@
             }
         };
 
-        window.openPdf = (id) => {
-            const m = memos.find(x => x.id === id);
-            if (!m || !m.pdfData) return;
+		window.openPdf = (id) => {
+		    const m = memos.find(x => x.id === id);
+		    const pdfSource = m?.pdfUrl || m?.pdfData;
+		
+		    if (!pdfSource) return;
 
             const win = window.open('', '_blank');
             if (!win) {
@@ -434,7 +437,7 @@
     </style>
 </head>
 <body>
-    <iframe src="${m.pdfData}" allowfullscreen></iframe>
+	<iframe src="${pdfSource}" allowfullscreen></iframe>
 </body>
 </html>`);
             win.document.close();
@@ -515,7 +518,15 @@
                 generateSummaryBtn.innerHTML = originalHtml;
             }
         }
-
+//upload helper function
+		function safeStorageFileName(value) {
+		    return cleanText(value || "memo")
+		        .replace(/[^\w.-]+/g, "_")
+		        .replace(/^_+|_+$/g, "")
+		        .slice(0, 80) || "memo";
+		}
+		
+//
         function renderCategoryTools() {
             const filterVal = categoryFilter.value;
             categoryFilter.innerHTML = '<option value="all">All Categories</option>' + 
@@ -588,6 +599,7 @@
             document.getElementById('memoId').value = "";
             memoPdfData.value = "";
             pdfUploadStatus.textContent = "";
+			selectedPdfFile = null;
             setTimeout(() => memoModal.querySelector('div').classList.remove('translate-x-full'), 10);
         };
 
@@ -612,21 +624,41 @@
                 category: document.getElementById('memoCategory').value,
                 conditions: document.getElementById('memoConditions').value,
                 application: document.getElementById('memoApplication').value,
-                pdfData: memoPdfData.value
+                pdfData: "",
+				pdfUrl: "",
+				pdfStoragePath: ""
             };
 
-            if (!data.ref || !data.topic) {
-                return showToast("Ref and Topic are required", "error");
+			if (!data.ref || !data.topic) {
+            	return showToast("Ref and Topic are required", "error");
             }
-            if (data.pdfData && data.pdfData.length > 900000) {
-                return showToast("PDF string is too large for database limits.", "error");
-            }
+			
+			const previousMemo = memos.find(m => m.id === data.id);
+			
+			data.pdfUrl = previousMemo?.pdfUrl || "";
+			data.pdfStoragePath = previousMemo?.pdfStoragePath || "";
+			
+			if (selectedPdfFile) {
+			    const timestamp = Date.now();
+			    const safeRef = safeStorageFileName(data.ref);
+			    const storagePath = `memo-pdfs/${data.id}/${timestamp}_${safeRef}.pdf`;
+			    const fileRef = storageRef(storage, storagePath);
+			
+			    await uploadBytes(fileRef, selectedPdfFile, {
+			        contentType: "application/pdf"
+			    });
+			
+			    data.pdfUrl = await getDownloadURL(fileRef);
+			    data.pdfStoragePath = storagePath;
+			    data.pdfData = "";
+			}
+
+
 
             saveFormBtn.disabled = true;
             saveSpinner.classList.remove('hidden');
 
             try {
-                const previousMemo = memos.find(m => m.id === data.id);
                 if (previousMemo && cleanText(previousMemo.url || "") && !cleanText(data.url || "")) {
                     await removeUrlMemoFromChunks(previousMemo);
                 }
@@ -659,8 +691,12 @@
             document.getElementById('memoCategory').value = m.category;
             document.getElementById('memoConditions').value = m.conditions || '';
             document.getElementById('memoApplication').value = m.application || '';
-            memoPdfData.value = m.pdfData || '';
-            pdfUploadStatus.textContent = m.pdfData ? 'Existing PDF loaded.' : '';
+			selectedPdfFile = null;
+			memoPdfInput.value = "";
+			memoPdfData.value = "";
+			pdfUploadStatus.textContent = m.pdfUrl
+			    ? "Existing PDF stored in Firebase Storage."
+			    : (m.pdfData ? "Existing embedded PDF loaded." : "");
             memoModal.classList.remove('hidden');
             document.getElementById('modalTitle').textContent = "Edit Memo Entry";
             setTimeout(() => memoModal.querySelector('div').classList.remove('translate-x-full'), 10);
@@ -675,6 +711,13 @@
             try {
                 const memoToDelete = memos.find(m => m.id === memoToDeleteId);
                 if (!memoToDelete) throw new Error("Memo was not found.");
+				if (memoToDelete.pdfStoragePath) {
+				    try {
+				        await deleteObject(storageRef(storage, memoToDelete.pdfStoragePath));
+				    } catch (error) {
+				        console.warn("PDF storage delete failed:", error);
+				    }
+				}
                 await deleteMemoRecord(memoToDelete);
                 memos = memos.filter(m => m.id !== memoToDeleteId);
                 // Adjust pagination if deleting the last item on the current page
@@ -1173,25 +1216,33 @@ async function parseExcelMemoFile(file) {
         condSearchInput.oninput = handleFilterChange;
         categoryFilter.onchange = handleFilterChange;
 
-        memoPdfInput.onchange = (e) => {
-            const file = e.target.files[0];
-            if (!file) {
-                memoPdfData.value = '';
-                pdfUploadStatus.textContent = '';
-                return;
-            }
-            if (file.size > 700 * 1024) {
-                showToast("File too large. Limit is 700KB.", "error");
-                memoPdfInput.value = '';
-                return;
-            }
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                memoPdfData.value = event.target.result;
-                pdfUploadStatus.textContent = `Loaded: ${file.name} (${Math.round(file.size/1024)}KB)`;
-            };
-            reader.readAsDataURL(file);
-        };
+		memoPdfInput.onchange = (e) => {
+		    const file = e.target.files[0];
+		
+		    if (!file) {
+		        selectedPdfFile = null;
+		        pdfUploadStatus.textContent = "";
+		        return;
+		    }
+		
+		    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+		        selectedPdfFile = null;
+		        memoPdfInput.value = "";
+		        showToast("Please upload a PDF file.", "error");
+		        return;
+		    }
+		
+		    if (file.size > 25 * 1024 * 1024) {
+		        selectedPdfFile = null;
+		        memoPdfInput.value = "";
+		        showToast("PDF is too large. Limit is 25MB.", "error");
+		        return;
+		    }
+		
+		    selectedPdfFile = file;
+		    pdfUploadStatus.textContent = `Ready to upload: ${file.name} (${Math.round(file.size / 1024)}KB)`;
+		};
+
         if (dateSortBtn) {
             dateSortBtn.onclick = () => {
                 if (dateSortDirection === null) {
