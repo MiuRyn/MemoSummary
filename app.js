@@ -8,13 +8,13 @@
 		import { db, storage } from "/firebase-config.js";
 		import { getUrlMemoKey, 
 				dedupeMemosByUrlRefId, 
-				overwriteUrlMemoChunks, 
-				upsertUrlMemoToChunks,
-				removeUrlMemoFromChunks,
+				overwriteMemoChunks, 
+				upsertMemoToChunks,
+				removeMemoFromChunks,
 				saveMemoRecord, 
 				deleteMemoRecord,
 				cleanupIndividualUrlDocuments,
-				loadUrlMemoChunks
+				loadMemoChunks
 			   } from "./firestore-storage.js";
 
        // const firebaseConfig = {
@@ -233,31 +233,15 @@
           //  await Promise.all(deletes);
          //   return deletes.length;
      //   }
-
-      async function loadMemos() {
-            try {
-                const [urlMemos, querySnapshot] = await Promise.all([
-                    loadUrlMemoChunks(),
-                    getDocs(collection(db, "memos"))
-                ]);
-
-                const individualMemos = [];
-
-                querySnapshot.forEach((snapshot) => {
-                    const data = snapshot.data();
-
-                    if (!cleanText(data.url || "")) {
-                       individualMemos.push(data);
-                    }
-                });
-
-                memos = dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
-                renderTable();
-            } catch (error) {
-                console.error(error);
-                showToast("Failed to load data from database", "error");
-            }
-        }
+		async function loadMemos() {
+		    try {
+		        memos = await loadMemoChunks();
+		        renderTable();
+		    } catch (error) {
+		        console.error(error);
+		        showToast("Failed to load data from database", "error");
+		    }
+}
 
         //function formatMemoDate(dateValue) {
         //    if (!dateValue) return "";
@@ -662,7 +646,7 @@
 			    }
 			
 			    if (previousMemo && cleanText(previousMemo.url || "") && !cleanText(data.url || "")) {
-			        await removeUrlMemoFromChunks(previousMemo);
+			        await removeMemoFromChunks(previousMemo);
 			    }
 			
 			    await saveMemoRecord(data);
@@ -962,7 +946,7 @@ async function parseExcelMemoFile(file) {
                 if (urlMemos.length) {
                     const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
                     const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...urlMemos]);
-                    await overwriteUrlMemoChunks(mergedUrlMemos);
+                    await overwriteMemoChunks(mergedUrlMemos);
                     await cleanupIndividualUrlDocuments(urlMemos);
                 }
 
@@ -1066,7 +1050,7 @@ async function parseExcelMemoFile(file) {
                             ...newImportedMemos
                 ]);
 
-                await overwriteUrlMemoChunks(mergedUrlMemos);
+                await overwriteMemoChunks(mergedUrlMemos);
                 const cleanedCount = await cleanupIndividualUrlDocuments(importedMemos);
 
                 await loadMemos();
@@ -1110,7 +1094,7 @@ async function parseExcelMemoFile(file) {
                 const newCount = changedUrlMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
                 const updatedCount = changedUrlMemos.length - newCount;
 
-                await overwriteUrlMemoChunks(mergedUrlMemos);
+                await overwriteMemoChunks(mergedUrlMemos);
                 const cleanedCount = await cleanupIndividualUrlDocuments(changedUrlMemos);
 
                 await loadMemos();
