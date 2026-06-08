@@ -39,7 +39,11 @@ module.exports.handler = async function (event) {
                 "User-Agent": "Mozilla/5.0 MemoSummaryBot/1.0"
             }
         });
+        console.log("PDF URL:", url);
+        console.log("Content-Type:", pdfResponse.headers.get("content-type"));
+        console.log("Content-Length:", pdfResponse.headers.get("content-length"));
 
+        
         if (!pdfResponse.ok) {
             return json(400, { error: `Unable to fetch URL. HTTP ${pdfResponse.status}` });
         }
@@ -52,13 +56,19 @@ module.exports.handler = async function (event) {
 
         const contentType = pdfResponse.headers.get("content-type") || "application/pdf";
         const arrayBuffer = await pdfResponse.arrayBuffer();
+        console.log("Downloaded PDF bytes:", arrayBuffer.byteLength);
 
         if (arrayBuffer.byteLength > 15 * 1024 * 1024) {
+            console.log("Rejected because PDF exceeds 15MB limit:", contentLength || arrayBuffer.byteLength);
             return json(400, { error: "PDF exceeds 15MB limit" });
         }
 
-            const trimmedPdfBytes = await trimPdfToFirstPages(arrayBuffer, 2);
-            const base64Data = Buffer.from(trimmedPdfBytes).toString("base64");
+        const trimmedPdfBytes = await trimPdfToFirstPages(arrayBuffer, 2);
+        
+        console.log("Trimmed PDF bytes:", trimmedPdfBytes.length);
+        console.log("Sending trimmed PDF to Gemini");
+        
+        const base64Data = Buffer.from(trimmedPdfBytes).toString("base64");
             
             const result = await generateGeminiSummaryAndMetadataFromPdf({
                 mimeType: "application/pdf",
@@ -118,7 +128,7 @@ async function generateGeminiSummaryAndMetadataFromPdf({
     );
 
     const data = await response.json().catch(() => ({}));
-
+    console.log("Gemini raw response:", JSON.stringify(data, null, 2));
     if (!response.ok) {
         throw new Error(data.error?.message || "Gemini PDF fallback failed");
     }
