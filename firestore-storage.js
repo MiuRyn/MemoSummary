@@ -14,7 +14,7 @@ const URL_MEMO_CHUNK_PREFIX = "memoChunk_";
 const URL_MEMO_CHUNK_SIZE = 100;
 
 export function getUrlMemoKey(memo) {
-    return cleanText((memo && memo.url) || (memo && memo.ref) || (memo && memo.id) || "");
+    return cleanText((memo && memo.id) || (memo && memo.url) || (memo && memo.pdfUrl) || (memo && memo.ref) || "");
 }
 
 export function dedupeMemosByUrlRefId(records) {
@@ -37,7 +37,7 @@ export function dedupeMemosByUrlRefId(records) {
     return Array.from(map.values());
 }
 
-export async function loadUrlMemoChunks() {
+export async function loadMemoChunks() {
     const querySnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
     const chunkDocs = [];
 
@@ -61,13 +61,23 @@ export async function loadUrlMemoChunks() {
     );
 }
 
-export async function overwriteUrlMemoChunks(urlMemos) {
+export async function overwriteMemoChunks(urlMemos) {
     const cleanUrlMemos = dedupeMemosByUrlRefId(
         urlMemos
-            .filter(memo => memo && cleanText(memo.url || ""))
+            .filter(memo =>
+                memo &&
+                (
+                    cleanText(memo.id || "") ||
+                    cleanText(memo.url || "") ||
+                    cleanText(memo.pdfUrl || "") ||
+                    cleanText(memo.ref || "")
+                )
+            )
             .map(memo => ({
                 ...memo,
-                pdfData: memo.pdfData || ""
+                pdfData: memo.pdfData || "",
+                pdfUrl: memo.pdfUrl || "",
+                pdfStoragePath: memo.pdfStoragePath || ""
             }))
     ).sort((a, b) => cleanText(a.ref || "").localeCompare(cleanText(b.ref || "")));
 
@@ -98,8 +108,8 @@ export async function overwriteUrlMemoChunks(urlMemos) {
     await Promise.all(writes);
 }
 
-export async function upsertUrlMemoToChunks(memo) {
-    const urlMemos = await loadUrlMemoChunks();
+export async function upsertMemoToChunks(memo) {
+    const urlMemos = await loadMemoChunks();
     const key = getUrlMemoKey(memo);
     const existingIndex = urlMemos.findIndex(item => getUrlMemoKey(item) === key);
 
@@ -113,48 +123,36 @@ export async function upsertUrlMemoToChunks(memo) {
         urlMemos.push(memo);
     }
 
-    await overwriteUrlMemoChunks(urlMemos);
+    await overwriteMemoChunks(urlMemos);
 }
 
-export async function removeUrlMemoFromChunks(memo) {
+export async function removeMemoFromChunks(memo) {
     const key = getUrlMemoKey(memo);
-    const urlMemos = await loadUrlMemoChunks();
+    const urlMemos = await loadMemoChunks();
 
-    await overwriteUrlMemoChunks(
+    await overwriteMemoChunks(
         urlMemos.filter(item => getUrlMemoKey(item) !== key)
     );
 }
 
 export async function saveMemoRecord(data) {
-    if (cleanText(data.url || "")) {
-        await upsertUrlMemoToChunks(data);
+    await upsertMemoToChunks(data);
 
-        try {
-            await deleteDoc(doc(db, "memos", data.id));
-        } catch {
-            // It may not exist as an individual document.
-        }
-
-        return;
+    try {
+        await deleteDoc(doc(db, "memos", data.id));
+    } catch {
+        // It may not exist as an individual document.
     }
-
-    await setDoc(doc(db, "memos", data.id), data);
 }
 
 export async function deleteMemoRecord(memo) {
-    if (memo && cleanText(memo.url || "")) {
-        await removeUrlMemoFromChunks(memo);
+    await removeMemoFromChunks(memo);
 
-        try {
-            await deleteDoc(doc(db, "memos", memo.id));
-        } catch {
-            // It may not exist as an individual document.
-        }
-
-        return;
+    try {
+        await deleteDoc(doc(db, "memos", memo.id));
+    } catch {
+        // It may not exist as an individual document.
     }
-
-    await deleteDoc(doc(db, "memos", memo.id));
 }
 
 export async function cleanupIndividualUrlDocuments(urlMemos) {
@@ -175,27 +173,4 @@ export async function cleanupIndividualUrlDocuments(urlMemos) {
     return deletes.length;
 }
 
-export async function loadMemos() {
-            try {
-                const [urlMemos, querySnapshot] = await Promise.all([
-                    loadUrlMemoChunks(),
-                    getDocs(collection(db, "memos"))
-                ]);
 
-                const individualMemos = [];
-
-                querySnapshot.forEach((snapshot) => {
-                    const data = snapshot.data();
-
-                    if (!cleanText(data.url || "")) {
-                        individualMemos.push(data);
-                    }
-                });
-
-                memos = dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
-                renderTable();
-            } catch (error) {
-                console.error(error);
-                showToast("Failed to load data from database", "error");
-            }
-}

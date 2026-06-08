@@ -16,20 +16,48 @@ export async function generateMemoSummaryWithGemini(memoInput) {
     const {
         url = "",
         pdfData = "",
+        pdfUrl = "",
         ref = "",
         date = "",
         topic = ""
     } = memoInput || {};
 
+    // 1. Unsaved uploaded PDF from FileReader
     if (pdfData && pdfData.startsWith("data:")) {
-        return await summarizeUploadedPdfWithNetlifyFunction({
-            pdfData,
+        try {
+            return await summarizeUploadedPdfWithNetlifyFunction({
+                pdfData,
+                ref,
+                date,
+                topic
+            });
+        } catch (error) {
+            console.warn("Uploaded PDF summary failed. Trying PDF URL fallback.", error);
+    
+            if (pdfUrl && /^https?:\/\//i.test(pdfUrl)) {
+                return await summarizeExternalUrlWithNetlifyFunction({
+                    url: pdfUrl,
+                    ref,
+                    date,
+                    topic
+                });
+            }
+    
+            throw error;
+        }
+    }
+
+    // 2. Saved Firebase Storage PDF URL
+    if (pdfUrl && /^https?:\/\//i.test(pdfUrl)) {
+        return await summarizeExternalUrlWithNetlifyFunction({
+            url: pdfUrl,
             ref,
             date,
             topic
         });
     }
 
+    // 3. External memo URL
     if (url && /^https?:\/\//i.test(url)) {
         return await summarizeExternalUrlWithNetlifyFunction({
             url,
@@ -39,7 +67,7 @@ export async function generateMemoSummaryWithGemini(memoInput) {
         });
     }
 
-    throw new Error("Please provide an uploaded PDF or a valid external URL.");
+    throw new Error("Please provide an uploaded PDF, stored PDF URL, or valid external URL.");
 }
 
 async function summarizeExternalUrlWithNetlifyFunction({ url, ref, date, topic }) {

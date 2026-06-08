@@ -1,39 +1,28 @@
-				
+		import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-storage.js";		
         import { collection, getDocs, setDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
         import { isLocalFileLink, localFileLinkToCopyPath, copyTextToClipboard } from "./local-file-links.js";
         import { generateMemoSummaryWithGemini } from "./ai-summary.js";
         import { loadCEDDMemos } from "./cedd-importer.js";
 		import { loadDEVBItems, getMemoRefDateDuplicateKey, isImportableDEVBRecord, normalizeDEVBItem } from "./devb-importer.js";
 		import { showToast, cleanText, formatMemoDate } from "./utils.js";
-		import { db } from "/firebase-config.js";
+		import { db, storage } from "/firebase-config.js";
 		import { getUrlMemoKey, 
 				dedupeMemosByUrlRefId, 
-				overwriteUrlMemoChunks, 
-				upsertUrlMemoToChunks,
-				removeUrlMemoFromChunks,
+				overwriteMemoChunks, 
+				upsertMemoToChunks,
+				removeMemoFromChunks,
 				saveMemoRecord, 
 				deleteMemoRecord,
 				cleanupIndividualUrlDocuments,
-				loadUrlMemoChunks
+				loadMemoChunks
 			   } from "./firestore-storage.js";
 
-       // const firebaseConfig = {
-        //    apiKey: "AIzaSyCtQbVm91_lsmzz2XcX60bhUCYH0CjRb_E",
-         //   authDomain: "memosummary.firebaseapp.com",
-          //  projectId: "memosummary",
-        //    storageBucket: "memosummary.firebasestorage.app",
-         //   messagingSenderId: "368924924231",
-         //   appId: "1:368924924231:web:db54991db4a9d6afe5d462",
-         //   measurementId: "G-798K8NH74R"
-       // };
-
-        //const app = initializeApp(firebaseConfig);
-      //  const db = getFirestore(app);
 
         let memos = [];
         const defaultCats = ["Insurance / PII", "Conditions of Contract", "Technical Specifications", "Procurement Guidelines"];
         let categories = JSON.parse(localStorage.getItem('tender_categories')) || defaultCats;
         let memoToDeleteId = null;
+		let selectedPdfFile = null;
 
         const URL_MEMO_CHUNK_COLLECTION = "appData";
         const URL_MEMO_CHUNK_PREFIX = "memoChunk_";
@@ -65,210 +54,20 @@
         const generateSummaryBtn = document.getElementById('generateSummaryBtn');
         const dateSortBtn = document.getElementById('dateSortBtn');
         const dateSortIcon = document.getElementById('dateSortIcon');
+		const pdfDragOverlay = document.getElementById("pdfDragOverlay");
+		let dragDepth = 0;
 
-
-        //function showToast(message, type = "success") {
-           // const toast = document.getElementById('toast');
-           // document.getElementById('toastMessage').textContent = message;
-            //document.getElementById('toastIcon').innerHTML = type === "success" ? '<i class="fa-solid fa-circle-check text-emerald-400"></i>' : '<i class="fa-solid fa-circle-exclamation text-amber-400"></i>';
-           // toast.classList.remove('translate-y-20', 'opacity-0');
-           // setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
-      //  }
-
-       // function cleanText(value) {
-        //    return (value || '').replace(/\s+/g, ' ').trim();
-        //}
-
-   //     function getUrlMemoKey(memo) {
-   //         return cleanText((memo && memo.url) || (memo && memo.ref) || (memo && memo.id) || "");
-   //     }
-
-      //  function dedupeMemosByUrlRefId(records) {
-      //      const map = new Map();
-
-       //     records.forEach((record) => {
-         //       const key = getUrlMemoKey(record);
-         //       if (!key) return;
-
-         //       const existing = map.get(key);
-          //      map.set(key, {
-          //          ...(existing || {}),
-          //          ...record,
-           //         id: (existing && existing.id) || record.id
-          //      });
-          //  });
-
-         //   return Array.from(map.values());
-      //  }
-
-      //  async function loadUrlMemoChunks() {
-           // const querySnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
-           // const chunkDocs = [];
-
-           // querySnapshot.forEach((snapshot) => {
-           //     if (!snapshot.id.startsWith(URL_MEMO_CHUNK_PREFIX)) return;
-           //     const data = snapshot.data();
-           //     if (!Array.isArray(data.memos)) return;
-
-           //     chunkDocs.push({
-           //         id: snapshot.id,
-           //         memos: data.memos
-          //      });
-          //  });
-//
-          //  chunkDocs.sort((a, b) => a.id.localeCompare(b.id));
-
-           // return dedupeMemosByUrlRefId(
-           //     chunkDocs.flatMap(chunk => chunk.memos)
-            //);
-        //}
-
-      //  async function overwriteUrlMemoChunks(urlMemos) {
-         //   const cleanUrlMemos = dedupeMemosByUrlRefId(
-           //     urlMemos
-          //          .filter(memo => memo && cleanText(memo.url || ""))
-          //          .map(memo => ({
-          //              ...memo,
-          //              pdfData: memo.pdfData || ""
-          //          }))
-        //    ).sort((a, b) => cleanText(a.ref || "").localeCompare(cleanText(b.ref || "")));
-
-        //    const existingSnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
-        //    const deletes = [];
-
-          //  existingSnapshot.forEach((snapshot) => {
-          //      if (snapshot.id.startsWith(URL_MEMO_CHUNK_PREFIX)) {
-         //           deletes.push(deleteDoc(doc(db, URL_MEMO_CHUNK_COLLECTION, snapshot.id)));
-        //        }
-        //    });
-
-        //    await Promise.all(deletes);
-
-          //  const writes = [];
-          //  for (let i = 0; i < cleanUrlMemos.length; i += URL_MEMO_CHUNK_SIZE) {
-          //      const chunkNumber = String(Math.floor(i / URL_MEMO_CHUNK_SIZE) + 1).padStart(3, "0");
-         //       const chunk = cleanUrlMemos.slice(i, i + URL_MEMO_CHUNK_SIZE);
-
-        //        writes.push(setDoc(doc(db, URL_MEMO_CHUNK_COLLECTION, `${URL_MEMO_CHUNK_PREFIX}${chunkNumber}`), {
-        //            updatedAt: new Date().toISOString(),
-       //             count: chunk.length,
-       //             memos: chunk
-     //           }));
-     //       }
-
-    //        await Promise.all(writes);
-  //      }
-
-  //      async function upsertUrlMemoToChunks(memo) {
-   //         const urlMemos = await loadUrlMemoChunks();
-   //         const key = getUrlMemoKey(memo);
-    //        const existingIndex = urlMemos.findIndex(item => getUrlMemoKey(item) === key);
-
-     //       if (existingIndex >= 0) {
-     //           urlMemos[existingIndex] = {
-      //              ...urlMemos[existingIndex],
-      //              ...memo,
-      //              id: urlMemos[existingIndex].id || memo.id
-      //          };
-      //      } else {
-       //         urlMemos.push(memo);
-       //     }
-
-       //     await overwriteUrlMemoChunks(urlMemos);
-      //  }
-
-      // async function removeUrlMemoFromChunks(memo) {
-        //    const key = getUrlMemoKey(memo);
-        //    const urlMemos = await loadUrlMemoChunks();
-        //    await overwriteUrlMemoChunks(urlMemos.filter(item => getUrlMemoKey(item) !== key));
-    //    }
-
-      //  async function saveMemoRecord(data) {
-        //    if (cleanText(data.url || "")) {
-         //       await upsertUrlMemoToChunks(data);
-
-         //       try {
-          //          await deleteDoc(doc(db, "memos", data.id));
-          //      } catch {
-           //         // It may not exist as an individual document.
-           //     }
-
-           //     return;
-          // }
-
-         //   await setDoc(doc(db, "memos", data.id), data);
-       // }
-
-      //  async function deleteMemoRecord(memo) {
-        //    if (memo && cleanText(memo.url || "")) {
-         //       await removeUrlMemoFromChunks(memo);
-
-         //       try {
-         //           await deleteDoc(doc(db, "memos", memo.id));
-          //      } catch {
-                    // It may not exist as an individual document.
-           //     }
-
-           //     return;
-         //   }
-
-         //   await deleteDoc(doc(db, "memos", memo.id));
-     //  }
-
-       // async function cleanupIndividualUrlDocuments(urlMemos) {
-       //     const keys = new Set(urlMemos.map(getUrlMemoKey).filter(Boolean));
-         //   const querySnapshot = await getDocs(collection(db, "memos"));
-          //  const deletes = [];
-
-         //   querySnapshot.forEach((snapshot) => {
-            //    const data = snapshot.data();
-           //     const key = getUrlMemoKey(data);
-
-           //     if (key && keys.has(key)) {
-           //         deletes.push(deleteDoc(doc(db, "memos", snapshot.id)));
-          //      }
-          //  });
-
-          //  await Promise.all(deletes);
-         //   return deletes.length;
-     //   }
-
-      async function loadMemos() {
-            try {
-                const [urlMemos, querySnapshot] = await Promise.all([
-                    loadUrlMemoChunks(),
-                    getDocs(collection(db, "memos"))
-                ]);
-
-                const individualMemos = [];
-
-                querySnapshot.forEach((snapshot) => {
-                    const data = snapshot.data();
-
-                    if (!cleanText(data.url || "")) {
-                       individualMemos.push(data);
-                    }
-                });
-
-                memos = dedupeMemosByUrlRefId([...urlMemos, ...individualMemos]);
-                renderTable();
-            } catch (error) {
-                console.error(error);
-                showToast("Failed to load data from database", "error");
-            }
-        }
-
-        //function formatMemoDate(dateValue) {
-        //    if (!dateValue) return "";
-         //   const raw = cleanText(dateValue);
-         //   const parsed = new Date(`${raw}T00:00:00`);
-         //   if (Number.isNaN(parsed.getTime())) return raw;
-         //   return parsed.toLocaleDateString(undefined, {
-          //      year: "numeric",
-          //      month: "short",
-          //      day: "numeric"
-          //  });
-       // }
+//Load memo function
+		async function loadMemos() {
+		    try {
+		        memos = await loadMemoChunks();
+		        renderTable();
+		    } catch (error) {
+		        console.error(error);
+		        showToast("Failed to load data from database", "error");
+		    }
+		}
+//End of Load memo function
         window.copyMemoLocalPath = async (id) => {
             const memo = memos.find(item => item.id === id);
             if (!memo || !memo.url) {
@@ -291,7 +90,7 @@
                 window.prompt("Copy this local file path:", pathToCopy);
             }
         };
-
+//Remdermemo link function
         function renderMemoLinkAction(memo) {
             if (!memo || !memo.url) return "";
 
@@ -320,7 +119,7 @@
             const condTerm = condSearchInput.value.toLowerCase();
             const cat = categoryFilter.value;
             
-        let filtered = memos.filter(m =>
+        	let filtered = memos.filter(m =>
                 (
                     (m.ref && m.ref.toLowerCase().includes(term)) ||
                     (m.topic && m.topic.toLowerCase().includes(term)) ||
@@ -329,20 +128,18 @@
                 (m.date || '').toLowerCase().includes(dateTerm) &&
                 (m.conditions || '').toLowerCase().includes(condTerm) &&
                 (cat === 'all' || m.category === cat)
-      );
-        if (dateSortDirection) {
-            filtered.sort((a, b) => {
-                const dateA = a.date ? new Date(a.date).getTime() : 0;
-                const dateB = b.date ? new Date(b.date).getTime() : 0;
+      			);
+        	if (dateSortDirection) {
+            	filtered.sort((a, b) => {
+                	const dateA = a.date ? new Date(a.date).getTime() : 0;
+                	const dateB = b.date ? new Date(b.date).getTime() : 0;
 
-                return dateSortDirection === "asc"
-                    ? dateA - dateB
-                    : dateB - dateA;
-            });
-        }
+                	return dateSortDirection === "asc"
+                    	? dateA - dateB
+                    	: dateB - dateA;
+            		});
+        		}
 
-            
-            
             const totalItems = filtered.length;
             totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
             
@@ -370,7 +167,7 @@
                     <td class="py-3 px-4 text-right whitespace-nowrap">
                         <div class="flex justify-end gap-1">
                             ${renderMemoLinkAction(m)}
-                            ${m.pdfData ? `<button onclick="openPdf('${m.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="Open PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
+                            ${(m.pdfUrl || m.pdfData) ? `<button onclick="openPdf('${m.id}')" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="Open PDF"><i class="fa-solid fa-file-pdf"></i></button>` : ''}
                             <button onclick="editMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-blue-600 transition"><i class="fa-solid fa-pen"></i></button>
                             <button onclick="deleteMemo('${m.id}')" class="p-1.5 text-slate-400 hover:text-red-600 transition"><i class="fa-solid fa-trash"></i></button>
                         </div>
@@ -406,6 +203,7 @@
             container.innerHTML = html;
         }
 
+
         window.changePage = (page) => {
             if (page >= 1 && page <= totalPages) {
                 window.currentPage = page;
@@ -413,9 +211,11 @@
             }
         };
 
-        window.openPdf = (id) => {
-            const m = memos.find(x => x.id === id);
-            if (!m || !m.pdfData) return;
+		window.openPdf = (id) => {
+		    const m = memos.find(x => x.id === id);
+		    const pdfSource = m?.pdfUrl || m?.pdfData;
+		
+		    if (!pdfSource) return;
 
             const win = window.open('', '_blank');
             if (!win) {
@@ -434,48 +234,66 @@
     </style>
 </head>
 <body>
-    <iframe src="${m.pdfData}" allowfullscreen></iframe>
+	<iframe src="${pdfSource}" allowfullscreen></iframe>
 </body>
 </html>`);
             win.document.close();
         };
 
-        async function generateMemoDescriptionFromGemini() {
-            if (!generateSummaryBtn) return;
-
-            const originalHtml = generateSummaryBtn.innerHTML;
-            const memoRefInput = document.getElementById('memoRef');
-            const memoDateInput = document.getElementById('memoDate');
-            const memoTopicInput = document.getElementById('memoTopic');
-            const memoApplicationInput = document.getElementById('memoApplication');
-//add guard to prevent overload of ai
-            if (
-                cleanText(memoRefInput.value) &&
-                cleanText(memoDateInput.value) &&
-                cleanText(memoTopicInput.value) &&
-                cleanText(memoApplicationInput.value)
-            ) {
-                showToast(
-                    "Record already contains metadata and description.",
-                    "info"
-                );
-                return;
-            }
-///end of guard            
-            try {
+		async function generateMemoDescriptionFromGemini() {
+		    if (!generateSummaryBtn) return;
+		
+		    const originalHtml = generateSummaryBtn.innerHTML;
+		    const memoRefInput = document.getElementById('memoRef');
+		    const memoDateInput = document.getElementById('memoDate');
+		    const memoTopicInput = document.getElementById('memoTopic');
+		    const memoApplicationInput = document.getElementById('memoApplication');
+		
+		    let tempRef = null;
+		    let tempPdfUrl = "";
+		
+		    if (
+		        cleanText(memoRefInput.value) &&
+		        cleanText(memoDateInput.value) &&
+		        cleanText(memoTopicInput.value) &&
+		        cleanText(memoApplicationInput.value)
+		    ) {
+		        showToast("Record already contains metadata and description.", "info");
+		        return;
+		    }
+		
+		    try {
                 generateSummaryBtn.disabled = true;
                 generateSummaryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Generating</span>';
 
-                const aiResult = await generateMemoSummaryWithGemini({
-                    ref: memoRefInput.value,
-                    date: memoDateInput.value,
-                    topic: memoTopicInput.value,
-                    url: document.getElementById('memoLink').value,
-                    category: document.getElementById('memoCategory').value,
-                    conditions: document.getElementById('memoConditions').value,
-                    application: memoApplicationInput.value,
-                    pdfData: memoPdfData.value
-                });
+				const currentMemoId = document.getElementById('memoId').value;
+				const currentMemo = memos.find(m => m.id === currentMemoId);
+				if (
+					    selectedPdfFile &&
+					    !currentMemo?.pdfUrl
+					) {
+					    const tempPath = `temp-ai/${Date.now()}_${selectedPdfFile.name}`;
+					
+						tempRef = storageRef(storage, tempPath);
+					
+					    await uploadBytes(tempRef, selectedPdfFile, {
+					        contentType: "application/pdf"
+					    });
+					
+					    tempPdfUrl = await getDownloadURL(tempRef);
+					}
+				const aiResult = await generateMemoSummaryWithGemini({
+				    ref: memoRefInput.value,
+				    date: memoDateInput.value,
+				    topic: memoTopicInput.value,
+				    url: document.getElementById('memoLink').value,
+				    pdfUrl: tempPdfUrl || currentMemo?.pdfUrl || "",
+				    category: document.getElementById('memoCategory').value,
+				    conditions: document.getElementById('memoConditions').value,
+				    application: memoApplicationInput.value,
+				    pdfData: memoPdfData.value
+					
+				});
 
                 const summaryText = typeof aiResult === "string" ? aiResult : (aiResult.summary || "");
 
@@ -513,16 +331,33 @@
             } finally {
                 generateSummaryBtn.disabled = false;
                 generateSummaryBtn.innerHTML = originalHtml;
+				if (tempRef) {
+						    try {
+						        await deleteObject(tempRef);
+							    } catch (error) {
+						        console.warn(error);
+				    }
+				}
             }
         }
-
+//upload helper function
+		function safeStorageFileName(value) {
+		    return cleanText(value || "memo")
+		        .replace(/[^\w.-]+/g, "_")
+		        .replace(/^_+|_+$/g, "")
+		        .slice(0, 80) || "memo";
+		}
+		
+//
         function renderCategoryTools() {
             const filterVal = categoryFilter.value;
             categoryFilter.innerHTML = '<option value="all">All Categories</option>' + 
                 categories.map(c => `<option value="${c}">${c}</option>`).join('');
             categoryFilter.value = categories.includes(filterVal) ? filterVal : 'all';
 
-            memoCategorySelect.innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+           memoCategorySelect.innerHTML =
+		    categories.map(c => `<option value="${c}">${c}</option>`).join('') +
+		    `<option value="__add_new_category__">+ Add new category...</option>`;
 
             catList.innerHTML = categories.map((c, i) => `
                 <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
@@ -546,6 +381,80 @@
                 showToast("Category added");
             }
         };
+//adding drag drop functions
+		function hidePdfDragOverlay() {
+		    dragDepth = 0;
+		    pdfDragOverlay.classList.add("hidden");
+		    pdfDragOverlay.classList.remove("flex");
+		}
+		
+		function isPdfDrag(event) {
+		    return Array.from(event.dataTransfer?.items || [])
+		        .some(item => item.kind === "file" && item.type === "application/pdf");
+		}
+		
+		function assignPdfFileToInput(file) {
+		    const transfer = new DataTransfer();
+		    transfer.items.add(file);
+		    memoPdfInput.files = transfer.files;
+		    memoPdfInput.dispatchEvent(new Event("change", { bubbles: true }));
+		}
+		
+		window.addEventListener("dragenter", (event) => {
+		    if (!isPdfDrag(event)) return;
+		
+		    event.preventDefault();
+		    dragDepth += 1;
+		
+		    memoModal.classList.remove("hidden");
+		
+		    const modalPanel = memoModal.querySelector(".translate-x-full");
+		    if (modalPanel) {
+		        setTimeout(() => modalPanel.classList.remove("translate-x-full"), 10);
+		    }
+		
+		    pdfDragOverlay.classList.remove("hidden");
+		    pdfDragOverlay.classList.add("flex");
+		});
+		
+		window.addEventListener("dragover", (event) => {
+		    if (!isPdfDrag(event)) return;
+		    event.preventDefault();
+		});
+		
+		window.addEventListener("dragleave", (event) => {
+		    if (event.relatedTarget) return;
+		    hidePdfDragOverlay();
+		});
+		
+		window.addEventListener("drop", (event) => {
+		    if (!isPdfDrag(event)) return;
+		
+		    event.preventDefault();
+		    hidePdfDragOverlay();
+		
+		    const file = Array.from(event.dataTransfer.files || [])
+		        .find(item => item.type === "application/pdf" || item.name.toLowerCase().endsWith(".pdf"));
+		
+		    if (!file) {
+		        showToast("Please drop a PDF file.", "error");
+		        return;
+		    }
+		
+		    assignPdfFileToInput(file);
+		
+		    memoPdfInput.scrollIntoView({
+		        behavior: "smooth",
+		        block: "center"
+		    });
+		});
+		
+		document.addEventListener("keydown", (event) => {
+		    if (event.key === "Escape") {
+		        hidePdfDragOverlay();
+		    }
+		});
+//adding drag drop functions
 
         window.removeCategory = (i) => {
             const cat = categories[i];
@@ -588,6 +497,7 @@
             document.getElementById('memoId').value = "";
             memoPdfData.value = "";
             pdfUploadStatus.textContent = "";
+			selectedPdfFile = null;
             setTimeout(() => memoModal.querySelector('div').classList.remove('translate-x-full'), 10);
         };
 
@@ -612,43 +522,68 @@
                 category: document.getElementById('memoCategory').value,
                 conditions: document.getElementById('memoConditions').value,
                 application: document.getElementById('memoApplication').value,
-                pdfData: memoPdfData.value
+                pdfData: "",
+				pdfUrl: "",
+				pdfStoragePath: ""
             };
 
-            if (!data.ref || !data.topic) {
-                return showToast("Ref and Topic are required", "error");
-            }
-            if (data.pdfData && data.pdfData.length > 900000) {
-                return showToast("PDF string is too large for database limits.", "error");
-            }
-
-            saveFormBtn.disabled = true;
-            saveSpinner.classList.remove('hidden');
-
-            try {
-                const previousMemo = memos.find(m => m.id === data.id);
-                if (previousMemo && cleanText(previousMemo.url || "") && !cleanText(data.url || "")) {
-                    await removeUrlMemoFromChunks(previousMemo);
-                }
-
-                await saveMemoRecord(data);
-                const idx = memos.findIndex(m => m.id === data.id);
-                if (idx > -1) {
-                    memos[idx] = data;
-                } else {
-                    memos.push(data);
-                }
-                renderTable();
-                closeM();
-                showToast("Saved successfully");
-            } catch (error) {
-                showToast("Error saving to database", "error");
-            } finally {
-                saveFormBtn.disabled = false;
-                saveSpinner.classList.add('hidden');
-            }
-        };
-
+			if (!data.ref || !data.topic) {
+			    return showToast("Ref and Topic are required", "error");
+			}
+			
+			saveFormBtn.disabled = true;
+			saveSpinner.classList.remove("hidden");
+			
+			try {
+			    const previousMemo = memos.find(m => m.id === data.id);
+			
+			    data.pdfUrl = previousMemo?.pdfUrl || "";
+			    data.pdfStoragePath = previousMemo?.pdfStoragePath || "";
+			
+			    if (selectedPdfFile) {
+			        const timestamp = Date.now();
+			        const safeRef = safeStorageFileName(data.ref);
+			        const storagePath = `memo-pdfs/${data.id}/${timestamp}_${safeRef}.pdf`;
+			        const fileRef = storageRef(storage, storagePath);
+			
+			        await uploadBytes(fileRef, selectedPdfFile, {
+			            contentType: "application/pdf"
+			        });
+			
+			        data.pdfUrl = await getDownloadURL(fileRef);
+			        data.pdfStoragePath = storagePath;
+			        data.pdfData = "";
+			    }
+			
+			    if (previousMemo && cleanText(previousMemo.url || "") && !cleanText(data.url || "")) {
+			        await removeMemoFromChunks(previousMemo);
+			    }
+			
+			    await saveMemoRecord(data);
+			
+			    const idx = memos.findIndex(m => m.id === data.id);
+			    if (idx > -1) {
+			        memos[idx] = data;
+			    } else {
+			        memos.push(data);
+			    }
+			
+			    renderTable();
+			    closeM();
+			
+			    selectedPdfFile = null;
+			    memoPdfData.value = "";
+			    memoPdfInput.value = "";
+			
+			    showToast("Saved successfully");
+			} catch (error) {
+			    console.error(error);
+			    showToast("Error saving to database", "error");
+			} finally {
+			    saveFormBtn.disabled = false;
+			    saveSpinner.classList.add("hidden");
+			}
+		};
         window.editMemo = (id) => {
             const m = memos.find(x => x.id === id);
             document.getElementById('memoId').value = m.id;
@@ -659,8 +594,12 @@
             document.getElementById('memoCategory').value = m.category;
             document.getElementById('memoConditions').value = m.conditions || '';
             document.getElementById('memoApplication').value = m.application || '';
-            memoPdfData.value = m.pdfData || '';
-            pdfUploadStatus.textContent = m.pdfData ? 'Existing PDF loaded.' : '';
+			selectedPdfFile = null;
+			memoPdfInput.value = "";
+			memoPdfData.value = "";
+			pdfUploadStatus.textContent = m.pdfUrl
+			    ? "Existing PDF stored in Firebase Storage."
+			    : (m.pdfData ? "Existing embedded PDF loaded." : "");
             memoModal.classList.remove('hidden');
             document.getElementById('modalTitle').textContent = "Edit Memo Entry";
             setTimeout(() => memoModal.querySelector('div').classList.remove('translate-x-full'), 10);
@@ -675,6 +614,13 @@
             try {
                 const memoToDelete = memos.find(m => m.id === memoToDeleteId);
                 if (!memoToDelete) throw new Error("Memo was not found.");
+				if (memoToDelete.pdfStoragePath) {
+				    try {
+				        await deleteObject(storageRef(storage, memoToDelete.pdfStoragePath));
+				    } catch (error) {
+				        console.warn("PDF storage delete failed:", error);
+				    }
+				}
                 await deleteMemoRecord(memoToDelete);
                 memos = memos.filter(m => m.id !== memoToDeleteId);
                 // Adjust pagination if deleting the last item on the current page
@@ -910,7 +856,7 @@ async function parseExcelMemoFile(file) {
                 if (urlMemos.length) {
                     const existingUrlMemos = memos.filter(memo => cleanText(memo.url || ""));
                     const mergedUrlMemos = dedupeMemosByUrlRefId([...existingUrlMemos, ...urlMemos]);
-                    await overwriteUrlMemoChunks(mergedUrlMemos);
+                    await overwriteMemoChunks(mergedUrlMemos);
                     await cleanupIndividualUrlDocuments(urlMemos);
                 }
 
@@ -1014,7 +960,7 @@ async function parseExcelMemoFile(file) {
                             ...newImportedMemos
                 ]);
 
-                await overwriteUrlMemoChunks(mergedUrlMemos);
+                await overwriteMemoChunks(mergedUrlMemos);
                 const cleanedCount = await cleanupIndividualUrlDocuments(importedMemos);
 
                 await loadMemos();
@@ -1058,7 +1004,7 @@ async function parseExcelMemoFile(file) {
                 const newCount = changedUrlMemos.filter(memo => !existingKeys.has(getUrlMemoKey(memo))).length;
                 const updatedCount = changedUrlMemos.length - newCount;
 
-                await overwriteUrlMemoChunks(mergedUrlMemos);
+                await overwriteMemoChunks(mergedUrlMemos);
                 const cleanedCount = await cleanupIndividualUrlDocuments(changedUrlMemos);
 
                 await loadMemos();
@@ -1173,25 +1119,60 @@ async function parseExcelMemoFile(file) {
         condSearchInput.oninput = handleFilterChange;
         categoryFilter.onchange = handleFilterChange;
 
-        memoPdfInput.onchange = (e) => {
-            const file = e.target.files[0];
-            if (!file) {
-                memoPdfData.value = '';
-                pdfUploadStatus.textContent = '';
-                return;
-            }
-            if (file.size > 700 * 1024) {
-                showToast("File too large. Limit is 700KB.", "error");
-                memoPdfInput.value = '';
-                return;
-            }
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                memoPdfData.value = event.target.result;
-                pdfUploadStatus.textContent = `Loaded: ${file.name} (${Math.round(file.size/1024)}KB)`;
-            };
-            reader.readAsDataURL(file);
-        };
+		memoCategorySelect.onchange = () => {
+		    if (memoCategorySelect.value !== "__add_new_category__") return;
+		
+		    const newCategory = window.prompt("Enter new category name:");
+		
+		    if (!newCategory || !newCategory.trim()) {
+		        memoCategorySelect.value = categories[0] || "";
+		        return;
+		    }
+		
+		    const cleanCategory = newCategory.trim();
+		
+		    if (!categories.includes(cleanCategory)) {
+		        categories.push(cleanCategory);
+		        saveCats();
+		        renderCategoryTools();
+		        showToast("Category added");
+		    }
+		
+		    memoCategorySelect.value = cleanCategory;
+		};
+
+		memoPdfInput.onchange = (e) => {
+		    const file = e.target.files[0];
+		
+		    if (!file) {
+		        selectedPdfFile = null;
+		        pdfUploadStatus.textContent = "";
+		        return;
+		    }
+		
+		    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+		        selectedPdfFile = null;
+		        memoPdfInput.value = "";
+		        showToast("Please upload a PDF file.", "error");
+		        return;
+		    }
+		
+		    if (file.size > 25 * 1024 * 1024) {
+		        selectedPdfFile = null;
+		        memoPdfInput.value = "";
+		        showToast("PDF is too large. Limit is 25MB.", "error");
+		        return;
+		    }
+				selectedPdfFile = file;
+				
+				const reader = new FileReader();
+				reader.onload = (event) => {
+				    memoPdfData.value = event.target.result;
+				    pdfUploadStatus.textContent = `Ready to upload: ${file.name} (${Math.round(file.size / 1024)}KB)`;
+				};
+				reader.readAsDataURL(file);
+		};
+
         if (dateSortBtn) {
             dateSortBtn.onclick = () => {
                 if (dateSortDirection === null) {
