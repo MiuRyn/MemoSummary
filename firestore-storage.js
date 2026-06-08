@@ -37,7 +37,7 @@ export function dedupeMemosByUrlRefId(records) {
     return Array.from(map.values());
 }
 
-export async function loadUrlMemoChunks() {
+export async function loadMemoChunks() {
     const querySnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
     const chunkDocs = [];
 
@@ -61,7 +61,7 @@ export async function loadUrlMemoChunks() {
     );
 }
 
-export async function overwriteUrlMemoChunks(urlMemos) {
+export async function overwriteMemoChunks(urlMemos) {
     const cleanUrlMemos = dedupeMemosByUrlRefId(
         urlMemos
             .filter(memo => memo && cleanText(memo.url || ""))
@@ -98,8 +98,8 @@ export async function overwriteUrlMemoChunks(urlMemos) {
     await Promise.all(writes);
 }
 
-export async function upsertUrlMemoToChunks(memo) {
-    const urlMemos = await loadUrlMemoChunks();
+export async function upsertMemoToChunks(memo) {
+    const urlMemos = await loadMemoChunks();
     const key = getUrlMemoKey(memo);
     const existingIndex = urlMemos.findIndex(item => getUrlMemoKey(item) === key);
 
@@ -113,21 +113,21 @@ export async function upsertUrlMemoToChunks(memo) {
         urlMemos.push(memo);
     }
 
-    await overwriteUrlMemoChunks(urlMemos);
+    await overwriteMemoChunks(urlMemos);
 }
 
-export async function removeUrlMemoFromChunks(memo) {
+export async function removeMemoFromChunks(memo) {
     const key = getUrlMemoKey(memo);
-    const urlMemos = await loadUrlMemoChunks();
+    const urlMemos = await loadMemoChunks();
 
-    await overwriteUrlMemoChunks(
+    await overwriteMemoChunks(
         urlMemos.filter(item => getUrlMemoKey(item) !== key)
     );
 }
 
 export async function saveMemoRecord(data) {
     if (cleanText(data.url || "")) {
-        await upsertUrlMemoToChunks(data);
+        await upsertMemoToChunks(data);
 
         try {
             await deleteDoc(doc(db, "memos", data.id));
@@ -143,7 +143,7 @@ export async function saveMemoRecord(data) {
 
 export async function deleteMemoRecord(memo) {
     if (memo && cleanText(memo.url || "")) {
-        await removeUrlMemoFromChunks(memo);
+        await removeMemoFromChunks(memo);
 
         try {
             await deleteDoc(doc(db, "memos", memo.id));
@@ -178,7 +178,7 @@ export async function cleanupIndividualUrlDocuments(urlMemos) {
 export async function loadMemos() {
             try {
                 const [urlMemos, querySnapshot] = await Promise.all([
-                    loadUrlMemoChunks(),
+                    loadMemoChunks(),
                     getDocs(collection(db, "memos"))
                 ]);
 
