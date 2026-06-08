@@ -32,7 +32,7 @@ export async function generateMemoSummaryWithGemini(memoInput) {
                 topic
             });
         } catch (error) {
-            console.warn("PDF summary failed, attempting URL fallback", error);
+            console.warn("Uploaded PDF summary failed. Trying PDF URL fallback.", error);
     
             if (pdfUrl && /^https?:\/\//i.test(pdfUrl)) {
                 return await summarizeExternalUrlWithNetlifyFunction({
