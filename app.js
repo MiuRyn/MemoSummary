@@ -54,8 +54,10 @@
         const generateSummaryBtn = document.getElementById('generateSummaryBtn');
         const dateSortBtn = document.getElementById('dateSortBtn');
         const dateSortIcon = document.getElementById('dateSortIcon');
+		const pdfDragOverlay = document.getElementById("pdfDragOverlay");
+		let dragDepth = 0;
 
-
+//Load memo function
 		async function loadMemos() {
 		    try {
 		        memos = await loadMemoChunks();
@@ -64,8 +66,8 @@
 		        console.error(error);
 		        showToast("Failed to load data from database", "error");
 		    }
-}
-
+		}
+//End of Load memo function
         window.copyMemoLocalPath = async (id) => {
             const memo = memos.find(item => item.id === id);
             if (!memo || !memo.url) {
@@ -88,7 +90,7 @@
                 window.prompt("Copy this local file path:", pathToCopy);
             }
         };
-
+//Remdermemo link function
         function renderMemoLinkAction(memo) {
             if (!memo || !memo.url) return "";
 
@@ -117,7 +119,7 @@
             const condTerm = condSearchInput.value.toLowerCase();
             const cat = categoryFilter.value;
             
-        let filtered = memos.filter(m =>
+        	let filtered = memos.filter(m =>
                 (
                     (m.ref && m.ref.toLowerCase().includes(term)) ||
                     (m.topic && m.topic.toLowerCase().includes(term)) ||
@@ -126,20 +128,18 @@
                 (m.date || '').toLowerCase().includes(dateTerm) &&
                 (m.conditions || '').toLowerCase().includes(condTerm) &&
                 (cat === 'all' || m.category === cat)
-      );
-        if (dateSortDirection) {
-            filtered.sort((a, b) => {
-                const dateA = a.date ? new Date(a.date).getTime() : 0;
-                const dateB = b.date ? new Date(b.date).getTime() : 0;
+      			);
+        	if (dateSortDirection) {
+            	filtered.sort((a, b) => {
+                	const dateA = a.date ? new Date(a.date).getTime() : 0;
+                	const dateB = b.date ? new Date(b.date).getTime() : 0;
 
-                return dateSortDirection === "asc"
-                    ? dateA - dateB
-                    : dateB - dateA;
-            });
-        }
+                	return dateSortDirection === "asc"
+                    	? dateA - dateB
+                    	: dateB - dateA;
+            		});
+        		}
 
-            
-            
             const totalItems = filtered.length;
             totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
             
@@ -202,6 +202,7 @@
 
             container.innerHTML = html;
         }
+
 
         window.changePage = (page) => {
             if (page >= 1 && page <= totalPages) {
@@ -378,6 +379,80 @@
                 showToast("Category added");
             }
         };
+//adding drag drop functions
+		function hidePdfDragOverlay() {
+		    dragDepth = 0;
+		    pdfDragOverlay.classList.add("hidden");
+		    pdfDragOverlay.classList.remove("flex");
+		}
+		
+		function isPdfDrag(event) {
+		    return Array.from(event.dataTransfer?.items || [])
+		        .some(item => item.kind === "file" && item.type === "application/pdf");
+		}
+		
+		function assignPdfFileToInput(file) {
+		    const transfer = new DataTransfer();
+		    transfer.items.add(file);
+		    memoPdfInput.files = transfer.files;
+		    memoPdfInput.dispatchEvent(new Event("change", { bubbles: true }));
+		}
+		
+		window.addEventListener("dragenter", (event) => {
+		    if (!isPdfDrag(event)) return;
+		
+		    event.preventDefault();
+		    dragDepth += 1;
+		
+		    memoModal.classList.remove("hidden");
+		
+		    const modalPanel = memoModal.querySelector(".translate-x-full");
+		    if (modalPanel) {
+		        setTimeout(() => modalPanel.classList.remove("translate-x-full"), 10);
+		    }
+		
+		    pdfDragOverlay.classList.remove("hidden");
+		    pdfDragOverlay.classList.add("flex");
+		});
+		
+		window.addEventListener("dragover", (event) => {
+		    if (!isPdfDrag(event)) return;
+		    event.preventDefault();
+		});
+		
+		window.addEventListener("dragleave", (event) => {
+		    if (event.relatedTarget) return;
+		    hidePdfDragOverlay();
+		});
+		
+		window.addEventListener("drop", (event) => {
+		    if (!isPdfDrag(event)) return;
+		
+		    event.preventDefault();
+		    hidePdfDragOverlay();
+		
+		    const file = Array.from(event.dataTransfer.files || [])
+		        .find(item => item.type === "application/pdf" || item.name.toLowerCase().endsWith(".pdf"));
+		
+		    if (!file) {
+		        showToast("Please drop a PDF file.", "error");
+		        return;
+		    }
+		
+		    assignPdfFileToInput(file);
+		
+		    memoPdfInput.scrollIntoView({
+		        behavior: "smooth",
+		        block: "center"
+		    });
+		});
+		
+		document.addEventListener("keydown", (event) => {
+		    if (event.key === "Escape") {
+		        hidePdfDragOverlay();
+		    }
+		});
+//adding drag drop functions
 
         window.removeCategory = (i) => {
             const cat = categories[i];
