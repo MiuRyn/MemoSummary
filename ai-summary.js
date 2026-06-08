@@ -24,12 +24,27 @@ export async function generateMemoSummaryWithGemini(memoInput) {
 
     // 1. Unsaved uploaded PDF from FileReader
     if (pdfData && pdfData.startsWith("data:")) {
-        return await summarizeUploadedPdfWithNetlifyFunction({
-            pdfData,
-            ref,
-            date,
-            topic
-        });
+        try {
+            return await summarizeUploadedPdfWithNetlifyFunction({
+                pdfData,
+                ref,
+                date,
+                topic
+            });
+        } catch (error) {
+            console.warn("PDF summary failed, attempting URL fallback", error);
+    
+            if (pdfUrl && /^https?:\/\//i.test(pdfUrl)) {
+                return await summarizeExternalUrlWithNetlifyFunction({
+                    url: pdfUrl,
+                    ref,
+                    date,
+                    topic
+                });
+            }
+    
+            throw error;
+        }
     }
 
     // 2. Saved Firebase Storage PDF URL
