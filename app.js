@@ -355,7 +355,9 @@
                 categories.map(c => `<option value="${c}">${c}</option>`).join('');
             categoryFilter.value = categories.includes(filterVal) ? filterVal : 'all';
 
-            memoCategorySelect.innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+           memoCategorySelect.innerHTML =
+		    categories.map(c => `<option value="${c}">${c}</option>`).join('') +
+		    `<option value="__add_new_category__">+ Add new category...</option>`;
 
             catList.innerHTML = categories.map((c, i) => `
                 <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
@@ -1116,6 +1118,28 @@ async function parseExcelMemoFile(file) {
         dateSearchInput.oninput = handleFilterChange;
         condSearchInput.oninput = handleFilterChange;
         categoryFilter.onchange = handleFilterChange;
+
+		memoCategorySelect.onchange = () => {
+		    if (memoCategorySelect.value !== "__add_new_category__") return;
+		
+		    const newCategory = window.prompt("Enter new category name:");
+		
+		    if (!newCategory || !newCategory.trim()) {
+		        memoCategorySelect.value = categories[0] || "";
+		        return;
+		    }
+		
+		    const cleanCategory = newCategory.trim();
+		
+		    if (!categories.includes(cleanCategory)) {
+		        categories.push(cleanCategory);
+		        saveCats();
+		        renderCategoryTools();
+		        showToast("Category added");
+		    }
+		
+		    memoCategorySelect.value = cleanCategory;
+		};
 
 		memoPdfInput.onchange = (e) => {
 		    const file = e.target.files[0];
