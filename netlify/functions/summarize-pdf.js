@@ -135,13 +135,14 @@ Existing form values:
 
 Return ONLY valid JSON in this exact shape:
 {
-  "summary": "",
   "ref": "",
   "date": "",
-  "topic": ""
+  "topic": "",
+  "summary": ""
 }
 
 Rules:
+- Fill ref, date, and topic first.
 - summary = 3 to 5 important key phrases separated by semicolons (;).
 - Key phrase shall include conditions for the memo to apply, if have;
 - ref = official memo, circular, technical circular, or reference number.
@@ -149,6 +150,8 @@ Rules:
 - topic = official memo title or subject.
 - If a field is not found, return an empty string for that field.
 - Do not invent missing values.
+- Keep each key phrase concise.
+- Do not end the JSON early.
 - Do not add markdown, comments, code fences, headings, or extra text.
     `.trim();
 }
@@ -231,7 +234,13 @@ function normalizeDateForInput(value) {
 }
 
 function cleanSummary(value) {
-    return cleanText(value)
+    const clean = cleanText(value);
+
+    if (clean.startsWith("{") || clean.includes('"summary"')) {
+        return "";
+    }
+
+    return clean
         .replace(/\n/g, " ")
         .replace(/\s*;\s*/g, "; ")
         .replace(/\.$/, "")
