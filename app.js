@@ -17,18 +17,6 @@
 				loadMemoChunks
 			   } from "./firestore-storage.js";
 
-       // const firebaseConfig = {
-        //    apiKey: "AIzaSyCtQbVm91_lsmzz2XcX60bhUCYH0CjRb_E",
-         //   authDomain: "memosummary.firebaseapp.com",
-          //  projectId: "memosummary",
-        //    storageBucket: "memosummary.firebasestorage.app",
-         //   messagingSenderId: "368924924231",
-         //   appId: "1:368924924231:web:db54991db4a9d6afe5d462",
-         //   measurementId: "G-798K8NH74R"
-       // };
-
-        //const app = initializeApp(firebaseConfig);
-      //  const db = getFirestore(app);
 
         let memos = [];
         const defaultCats = ["Insurance / PII", "Conditions of Contract", "Technical Specifications", "Procurement Guidelines"];
@@ -68,171 +56,6 @@
         const dateSortIcon = document.getElementById('dateSortIcon');
 
 
-        //function showToast(message, type = "success") {
-           // const toast = document.getElementById('toast');
-           // document.getElementById('toastMessage').textContent = message;
-            //document.getElementById('toastIcon').innerHTML = type === "success" ? '<i class="fa-solid fa-circle-check text-emerald-400"></i>' : '<i class="fa-solid fa-circle-exclamation text-amber-400"></i>';
-           // toast.classList.remove('translate-y-20', 'opacity-0');
-           // setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
-      //  }
-
-       // function cleanText(value) {
-        //    return (value || '').replace(/\s+/g, ' ').trim();
-        //}
-
-   //     function getUrlMemoKey(memo) {
-   //         return cleanText((memo && memo.url) || (memo && memo.ref) || (memo && memo.id) || "");
-   //     }
-
-      //  function dedupeMemosByUrlRefId(records) {
-      //      const map = new Map();
-
-       //     records.forEach((record) => {
-         //       const key = getUrlMemoKey(record);
-         //       if (!key) return;
-
-         //       const existing = map.get(key);
-          //      map.set(key, {
-          //          ...(existing || {}),
-          //          ...record,
-           //         id: (existing && existing.id) || record.id
-          //      });
-          //  });
-
-         //   return Array.from(map.values());
-      //  }
-
-      //  async function loadUrlMemoChunks() {
-           // const querySnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
-           // const chunkDocs = [];
-
-           // querySnapshot.forEach((snapshot) => {
-           //     if (!snapshot.id.startsWith(URL_MEMO_CHUNK_PREFIX)) return;
-           //     const data = snapshot.data();
-           //     if (!Array.isArray(data.memos)) return;
-
-           //     chunkDocs.push({
-           //         id: snapshot.id,
-           //         memos: data.memos
-          //      });
-          //  });
-//
-          //  chunkDocs.sort((a, b) => a.id.localeCompare(b.id));
-
-           // return dedupeMemosByUrlRefId(
-           //     chunkDocs.flatMap(chunk => chunk.memos)
-            //);
-        //}
-
-      //  async function overwriteUrlMemoChunks(urlMemos) {
-         //   const cleanUrlMemos = dedupeMemosByUrlRefId(
-           //     urlMemos
-          //          .filter(memo => memo && cleanText(memo.url || ""))
-          //          .map(memo => ({
-          //              ...memo,
-          //              pdfData: memo.pdfData || ""
-          //          }))
-        //    ).sort((a, b) => cleanText(a.ref || "").localeCompare(cleanText(b.ref || "")));
-
-        //    const existingSnapshot = await getDocs(collection(db, URL_MEMO_CHUNK_COLLECTION));
-        //    const deletes = [];
-
-          //  existingSnapshot.forEach((snapshot) => {
-          //      if (snapshot.id.startsWith(URL_MEMO_CHUNK_PREFIX)) {
-         //           deletes.push(deleteDoc(doc(db, URL_MEMO_CHUNK_COLLECTION, snapshot.id)));
-        //        }
-        //    });
-
-        //    await Promise.all(deletes);
-
-          //  const writes = [];
-          //  for (let i = 0; i < cleanUrlMemos.length; i += URL_MEMO_CHUNK_SIZE) {
-          //      const chunkNumber = String(Math.floor(i / URL_MEMO_CHUNK_SIZE) + 1).padStart(3, "0");
-         //       const chunk = cleanUrlMemos.slice(i, i + URL_MEMO_CHUNK_SIZE);
-
-        //        writes.push(setDoc(doc(db, URL_MEMO_CHUNK_COLLECTION, `${URL_MEMO_CHUNK_PREFIX}${chunkNumber}`), {
-        //            updatedAt: new Date().toISOString(),
-       //             count: chunk.length,
-       //             memos: chunk
-     //           }));
-     //       }
-
-    //        await Promise.all(writes);
-  //      }
-
-  //      async function upsertUrlMemoToChunks(memo) {
-   //         const urlMemos = await loadUrlMemoChunks();
-   //         const key = getUrlMemoKey(memo);
-    //        const existingIndex = urlMemos.findIndex(item => getUrlMemoKey(item) === key);
-
-     //       if (existingIndex >= 0) {
-     //           urlMemos[existingIndex] = {
-      //              ...urlMemos[existingIndex],
-      //              ...memo,
-      //              id: urlMemos[existingIndex].id || memo.id
-      //          };
-      //      } else {
-       //         urlMemos.push(memo);
-       //     }
-
-       //     await overwriteUrlMemoChunks(urlMemos);
-      //  }
-
-      // async function removeUrlMemoFromChunks(memo) {
-        //    const key = getUrlMemoKey(memo);
-        //    const urlMemos = await loadUrlMemoChunks();
-        //    await overwriteUrlMemoChunks(urlMemos.filter(item => getUrlMemoKey(item) !== key));
-    //    }
-
-      //  async function saveMemoRecord(data) {
-        //    if (cleanText(data.url || "")) {
-         //       await upsertUrlMemoToChunks(data);
-
-         //       try {
-          //          await deleteDoc(doc(db, "memos", data.id));
-          //      } catch {
-           //         // It may not exist as an individual document.
-           //     }
-
-           //     return;
-          // }
-
-         //   await setDoc(doc(db, "memos", data.id), data);
-       // }
-
-      //  async function deleteMemoRecord(memo) {
-        //    if (memo && cleanText(memo.url || "")) {
-         //       await removeUrlMemoFromChunks(memo);
-
-         //       try {
-         //           await deleteDoc(doc(db, "memos", memo.id));
-          //      } catch {
-                    // It may not exist as an individual document.
-           //     }
-
-           //     return;
-         //   }
-
-         //   await deleteDoc(doc(db, "memos", memo.id));
-     //  }
-
-       // async function cleanupIndividualUrlDocuments(urlMemos) {
-       //     const keys = new Set(urlMemos.map(getUrlMemoKey).filter(Boolean));
-         //   const querySnapshot = await getDocs(collection(db, "memos"));
-          //  const deletes = [];
-
-         //   querySnapshot.forEach((snapshot) => {
-            //    const data = snapshot.data();
-           //     const key = getUrlMemoKey(data);
-
-           //     if (key && keys.has(key)) {
-           //         deletes.push(deleteDoc(doc(db, "memos", snapshot.id)));
-          //      }
-          //  });
-
-          //  await Promise.all(deletes);
-         //   return deletes.length;
-     //   }
 		async function loadMemos() {
 		    try {
 		        memos = await loadMemoChunks();
@@ -243,17 +66,6 @@
 		    }
 }
 
-        //function formatMemoDate(dateValue) {
-        //    if (!dateValue) return "";
-         //   const raw = cleanText(dateValue);
-         //   const parsed = new Date(`${raw}T00:00:00`);
-         //   if (Number.isNaN(parsed.getTime())) return raw;
-         //   return parsed.toLocaleDateString(undefined, {
-          //      year: "numeric",
-          //      month: "short",
-          //      day: "numeric"
-          //  });
-       // }
         window.copyMemoLocalPath = async (id) => {
             const memo = memos.find(item => item.id === id);
             if (!memo || !memo.url) {
@@ -427,45 +239,59 @@
             win.document.close();
         };
 
-        async function generateMemoDescriptionFromGemini() {
-            if (!generateSummaryBtn) return;
-
-            const originalHtml = generateSummaryBtn.innerHTML;
-            const memoRefInput = document.getElementById('memoRef');
-            const memoDateInput = document.getElementById('memoDate');
-            const memoTopicInput = document.getElementById('memoTopic');
-            const memoApplicationInput = document.getElementById('memoApplication');
-//add guard to prevent overload of ai
-            if (
-                cleanText(memoRefInput.value) &&
-                cleanText(memoDateInput.value) &&
-                cleanText(memoTopicInput.value) &&
-                cleanText(memoApplicationInput.value)
-            ) {
-                showToast(
-                    "Record already contains metadata and description.",
-                    "info"
-                );
-                return;
-            }
-///end of guard            
-            try {
+		async function generateMemoDescriptionFromGemini() {
+		    if (!generateSummaryBtn) return;
+		
+		    const originalHtml = generateSummaryBtn.innerHTML;
+		    const memoRefInput = document.getElementById('memoRef');
+		    const memoDateInput = document.getElementById('memoDate');
+		    const memoTopicInput = document.getElementById('memoTopic');
+		    const memoApplicationInput = document.getElementById('memoApplication');
+		
+		    let tempRef = null;
+		    let tempPdfUrl = "";
+		
+		    if (
+		        cleanText(memoRefInput.value) &&
+		        cleanText(memoDateInput.value) &&
+		        cleanText(memoTopicInput.value) &&
+		        cleanText(memoApplicationInput.value)
+		    ) {
+		        showToast("Record already contains metadata and description.", "info");
+		        return;
+		    }
+		
+		    try {
                 generateSummaryBtn.disabled = true;
                 generateSummaryBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Generating</span>';
 
 				const currentMemoId = document.getElementById('memoId').value;
 				const currentMemo = memos.find(m => m.id === currentMemoId);
-				
+				if (
+					    selectedPdfFile &&
+					    !currentMemo?.pdfUrl
+					) {
+					    const tempPath = `temp-ai/${Date.now()}_${selectedPdfFile.name}`;
+					
+						tempRef = storageRef(storage, tempPath);
+					
+					    await uploadBytes(tempRef, selectedPdfFile, {
+					        contentType: "application/pdf"
+					    });
+					
+					    tempPdfUrl = await getDownloadURL(tempRef);
+					}
 				const aiResult = await generateMemoSummaryWithGemini({
 				    ref: memoRefInput.value,
 				    date: memoDateInput.value,
 				    topic: memoTopicInput.value,
 				    url: document.getElementById('memoLink').value,
-				    pdfUrl: currentMemo?.pdfUrl || "",
+				    pdfUrl: tempPdfUrl || currentMemo?.pdfUrl || "",
 				    category: document.getElementById('memoCategory').value,
 				    conditions: document.getElementById('memoConditions').value,
 				    application: memoApplicationInput.value,
 				    pdfData: memoPdfData.value
+					
 				});
 
                 const summaryText = typeof aiResult === "string" ? aiResult : (aiResult.summary || "");
@@ -504,6 +330,13 @@
             } finally {
                 generateSummaryBtn.disabled = false;
                 generateSummaryBtn.innerHTML = originalHtml;
+				if (tempRef) {
+						    try {
+						        await deleteObject(tempRef);
+							    } catch (error) {
+						        console.warn(error);
+				    }
+				}
             }
         }
 //upload helper function
