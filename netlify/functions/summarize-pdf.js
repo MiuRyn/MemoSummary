@@ -99,7 +99,7 @@ async function generateGeminiSummaryAndMetadataFromPdf({ mimeType, base64Data, r
                 ],
                 generationConfig: {
                     temperature: 0.1,
-                    maxOutputTokens: 1400
+                    maxOutputTokens: 1000
                 }
             })
         }
