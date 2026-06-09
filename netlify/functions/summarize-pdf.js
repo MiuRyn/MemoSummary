@@ -1,4 +1,5 @@
 const { PDFDocument } = require("pdf-lib");
+const pdfParse = require("pdf-parse");
 
 async function trimPdfToFirstPages(pdfBuffer, maxPages = 2) {
     const sourcePdf = await PDFDocument.load(pdfBuffer, {
@@ -41,18 +42,39 @@ exports.handler = async function (event) {
             return json(400, { error: "PDF exceeds 15MB limit" });
         }
 
-            const pdfBuffer = Buffer.from(parsedPdf.base64Data, "base64");
-            const trimmedPdfBytes = await trimPdfToFirstPages(pdfBuffer, 2);
-            const trimmedBase64Data = Buffer.from(trimmedPdfBytes).toString("base64");
-            
-            const result = await generateGeminiSummaryAndMetadataFromPdf({
+        const pdfBuffer = Buffer.from(parsedPdf.base64Data, "base64");
+        const trimmedPdfBytes = await trimPdfToFirstPages(pdfBuffer, 2);
+        const trimmedBuffer = Buffer.from(trimmedPdfBytes);
+        
+        let documentText = "";
+        
+        try {
+            const parsed = await pdfParse(trimmedBuffer);
+            documentText = cleanText(parsed.text || "");
+        } catch (error) {
+            console.warn("PDF text extraction failed:", error.message);
+        }
+        
+        let result;
+        
+        if (documentText.length > 100) {
+            result = await generateGeminiSummaryAndMetadataFromText({
+                documentText,
+                ref,
+                date,
+                topic
+            });
+        } else {
+            const trimmedBase64Data = trimmedBuffer.toString("base64");
+        
+            result = await generateGeminiSummaryAndMetadataFromPdf({
                 mimeType: "application/pdf",
                 base64Data: trimmedBase64Data,
                 ref,
                 date,
                 topic
             });
-
+        }
         return json(200, result);
     } catch (error) {
         return json(500, {
@@ -72,7 +94,61 @@ function parseDataUrl(dataUrl) {
     };
 }
 
+//extract text first
+async function generateGeminiSummaryAndMetadataFromText({ documentText, ref, date, topic }) {
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                contents: [
+                    {
+                        parts: [
+                            {
+                                text: `
+${buildPrompt({ ref, date, topic })}
 
+Document text from first 2 pages:
+
+${documentText.slice(0, 12000)}
+                                `.trim()
+                            }
+                        ]
+                    }
+                ],
+                generationConfig: {
+                    temperature: 0,
+                    maxOutputTokens: 4096,
+                    thinkingConfig: {
+                        thinkingBudget: 0
+                    }
+                }
+            })
+        }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.error?.message || "Gemini text summary failed");
+    }
+
+    const text = data.candidates?.[0]?.content?.parts
+        ?.map(part => part.text || "")
+        .join(" ")
+        .trim();
+
+    if (!text) {
+        throw new Error("Gemini returned an empty text response");
+    }
+
+    return parseGeminiJsonResult(text);
+}
+
+//extract pdf as fall back
 async function generateGeminiSummaryAndMetadataFromPdf({ mimeType, base64Data, ref, date, topic }) {
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
@@ -98,8 +174,12 @@ async function generateGeminiSummaryAndMetadataFromPdf({ mimeType, base64Data, r
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.1,
-                    maxOutputTokens: 1400
+                    temperature: 0,
+                    maxOutputTokens: 4096,
+                    thinkingConfig: {
+                        thinkingBudget: 0
+                    }
+                }
                 }
             })
         }
@@ -125,15 +205,15 @@ async function generateGeminiSummaryAndMetadataFromPdf({ mimeType, base64Data, r
 
 function buildPrompt({ ref, date, topic }) {
     return `
-Extract memo metadata and keywords from this government memo.
-Only use the provided PDF content. The uploaded PDF has already been trimmed to the first 2 pages.
+Extract memo metadata from the provided content.
 
-Existing form values:
-- Reference: ${ref || ""}
-- Date: ${date || ""}
-- Topic: ${topic || ""}
+Existing values:
+Reference: ${ref || ""}
+Date: ${date || ""}
+Topic: ${topic || ""}
+URL: ${url || ""}
 
-Return ONLY valid JSON in this exact shape:
+Return ONLY JSON:
 {
   "ref": "",
   "date": "",
@@ -142,17 +222,13 @@ Return ONLY valid JSON in this exact shape:
 }
 
 Rules:
-- Fill ref, date, and topic first.
-- summary = 3 to 5 important key phrases separated by semicolons (;).
-- Key phrase shall include conditions for the memo to apply, if have;
-- ref = official memo, circular, technical circular, or reference number.
-- date = exact issue date in YYYY-MM-DD format.
-- topic = official memo title or subject.
-- If a field is not found, return an empty string for that field.
-- Do not invent missing values.
-- Keep each key phrase concise.
-- Do not end the JSON early.
-- Do not add markdown, comments, code fences, headings, or extra text.
+- Use only provided content.
+- Fill unknown fields with "".
+- date must be YYYY-MM-DD.
+- summary must be 3 to 5 short phrases separated by semicolons.
+- include conditions if have. 
+- Total output under 100 words.
+- No markdown.
     `.trim();
 }
 
