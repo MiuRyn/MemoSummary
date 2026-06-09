@@ -196,7 +196,7 @@ ${documentText.slice(0, 12000)}`
     );
 
     const data = await response.json().catch(() => ({}));
-
+    console.log("Gemini raw response:", JSON.stringify(data, null, 2));
     if (!response.ok) {
         throw new Error(data.error?.message || "Gemini text summary failed");
     }
