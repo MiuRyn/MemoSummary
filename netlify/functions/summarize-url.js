@@ -66,18 +66,24 @@ module.exports.handler = async function (event) {
 
         const trimmedPdfBytes = await trimPdfToFirstPages(arrayBuffer, 2);
         const trimmedBuffer = Buffer.from(trimmedPdfBytes);
-
+        console.log("Trimmed PDF bytes:", trimmedBuffer.length);
+        
         let documentText = "";
-
+        console.log("Starting text extraction from trimmed PDF");
             try {
                 const parsed = await pdfParse(trimmedBuffer);
                 documentText = cleanText(parsed.text || "");
+                console.log("Extracted text length:", documentText.length);
             } catch (error) {
                 console.warn("PDF text extraction failed:", error.message);
             }
-            
+
+            console.log(
+                documentText.length > 100
+                ? "Using extracted text path"
+                : "Using PDF fallback path"
+                
             let result;
-            
             if (documentText.length > 100) {
                 result = await generateGeminiSummaryAndMetadataFromText({
                     documentText,
