@@ -1,4 +1,5 @@
 const { PDFDocument } = require("pdf-lib");
+const pdfParse = require("pdf-parse");
 
 async function trimPdfToFirstPages(arrayBuffer, maxPages = 3) {
     const sourcePdf = await PDFDocument.load(arrayBuffer, {
@@ -64,21 +65,40 @@ module.exports.handler = async function (event) {
         }
 
         const trimmedPdfBytes = await trimPdfToFirstPages(arrayBuffer, 2);
-        
-        console.log("Trimmed PDF bytes:", trimmedPdfBytes.length);
-        console.log("Sending trimmed PDF to Gemini");
-        
-        const base64Data = Buffer.from(trimmedPdfBytes).toString("base64");
-            
-            const result = await generateGeminiSummaryAndMetadataFromPdf({
-                mimeType: "application/pdf",
-                base64Data,
-                ref,
-                date,
-                topic,
-                url
-            });
+        const trimmedBuffer = Buffer.from(trimmedPdfBytes);
 
+        let documentText = "";
+
+            try {
+                const parsed = await pdfParse(trimmedBuffer);
+                documentText = cleanText(parsed.text || "");
+            } catch (error) {
+                console.warn("PDF text extraction failed:", error.message);
+            }
+            
+            let result;
+            
+            if (documentText.length > 100) {
+                result = await generateGeminiSummaryAndMetadataFromText({
+                    documentText,
+                    ref,
+                    date,
+                    topic,
+                    url
+                });
+            } else {
+                const base64Data = trimmedBuffer.toString("base64");
+            
+                result = await generateGeminiSummaryAndMetadataFromPdf({
+                    mimeType: "application/pdf",
+                    base64Data,
+                    ref,
+                    date,
+                    topic,
+                    url
+                });
+            }
+        
         return json(200, result);
     } catch (error) {
         return json(500, {
@@ -140,6 +160,48 @@ async function generateGeminiSummaryAndMetadataFromPdf({
 
     if (!text) {
         throw new Error("Gemini returned an empty response");
+    }
+
+    return parseGeminiJsonResult(text);
+}
+
+async function generateGeminiSummaryAndMetadataFromText({ documentText, ref, date, topic, url }) {
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: `${buildPrompt({ ref, date, topic, url })}
+
+Document text from first pages:
+
+${documentText.slice(0, 12000)}`
+                    }]
+                }],
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 1400
+                }
+            })
+        }
+    );
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.error?.message || "Gemini text summary failed");
+    }
+
+    const text = data.candidates?.[0]?.content?.parts
+        ?.map(part => part.text || "")
+        .join(" ")
+        .trim();
+
+    if (!text) {
+        throw new Error("Gemini returned an empty text response");
     }
 
     return parseGeminiJsonResult(text);
