@@ -146,8 +146,11 @@ async function generateGeminiSummaryAndMetadataFromPdf({
                     }
                 ],
                 generationConfig: {
-                    temperature: 0.1,
-                    maxOutputTokens: 2000
+                    temperature: 0,
+                    maxOutputTokens: 4096,
+                    thinkingConfig: {
+                        thinkingBudget: 0
+                    }
                 }
             })
         }
@@ -188,8 +191,11 @@ ${documentText.slice(0, 12000)}`
                     }]
                 }],
                 generationConfig: {
-                    temperature: 0.1,
-                    maxOutputTokens: 1400
+                    temperature: 0,
+                    maxOutputTokens: 2000,
+                    thinkingConfig: {
+                        thinkingBudget: 0
+                    }
                 }
             })
         }
@@ -215,16 +221,15 @@ ${documentText.slice(0, 12000)}`
 
 function buildPrompt({ ref, date, topic, url }) {
     return `
-Extract memo metadata and keywords from this government memo.
-Only use the provided document text or PDF content.
+Extract memo metadata from the provided content.
 
-Existing form values:
-- Reference: ${ref || ""}
-- Date: ${date || ""}
-- Topic: ${topic || ""}
-- Source URL: ${url || ""}
+Existing values:
+Reference: ${ref || ""}
+Date: ${date || ""}
+Topic: ${topic || ""}
+URL: ${url || ""}
 
-Return ONLY valid JSON:
+Return ONLY JSON:
 {
   "ref": "",
   "date": "",
@@ -233,17 +238,13 @@ Return ONLY valid JSON:
 }
 
 Rules:
-- Fill ref, date, and topic first.
-- summary = 3 to 5 important key phrases separated by semicolons (;).
-- Key phrase shall include conditions for the memo to apply, if have;
-- ref = official memo, circular, technical circular, or reference number.
-- date = exact issue date in YYYY-MM-DD format.
-- topic = official memo title or subject.
-- If a field is not found, return an empty string for that field.
-- Do not invent missing values.
-- Keep each key phrase concise.
-- Do not end the JSON early.
-- Do not add markdown, comments, code fences, headings, or extra text.
+- Use only provided content.
+- Fill unknown fields with "".
+- date must be YYYY-MM-DD.
+- summary must be 3 to 5 short phrases separated by semicolons.
+- include conditions if have.
+- Total output under 100 words.
+- No markdown.
     `.trim();
 }
 
