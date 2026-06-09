@@ -147,7 +147,7 @@ async function generateGeminiSummaryAndMetadataFromPdf({
                 ],
                 generationConfig: {
                     temperature: 0.1,
-                    maxOutputTokens: 1400
+                    maxOutputTokens: 2000
                 }
             })
         }
@@ -224,7 +224,7 @@ Existing form values:
 - Topic: ${topic || ""}
 - Source URL: ${url || ""}
 
-Return ONLY valid JSON in this exact shape:
+Return ONLY valid JSON:
 {
   "ref": "",
   "date": "",
