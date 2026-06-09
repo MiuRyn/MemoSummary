@@ -82,7 +82,7 @@ module.exports.handler = async function (event) {
                 documentText.length > 100
                 ? "Using extracted text path"
                 : "Using PDF fallback path"
-                
+             );   
             let result;
             if (documentText.length > 100) {
                 result = await generateGeminiSummaryAndMetadataFromText({
