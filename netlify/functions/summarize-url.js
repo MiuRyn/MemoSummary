@@ -147,7 +147,7 @@ async function generateGeminiSummaryAndMetadataFromPdf({
                 ],
                 generationConfig: {
                     temperature: 0,
-                    maxOutputTokens: 4096,
+                    maxOutputTokens: 2000,
                     thinkingConfig: {
                         thinkingBudget: 0
                     }
