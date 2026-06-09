@@ -180,7 +180,6 @@ async function generateGeminiSummaryAndMetadataFromPdf({ mimeType, base64Data, r
                         thinkingBudget: 0
                     }
                 }
-                }
             })
         }
     );
