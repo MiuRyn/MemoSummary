@@ -210,7 +210,6 @@ Existing values:
 Reference: ${ref || ""}
 Date: ${date || ""}
 Topic: ${topic || ""}
-URL: ${url || ""}
 
 Return ONLY JSON:
 {
